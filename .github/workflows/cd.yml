@@ -1,0 +1,58 @@
+name: CD
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # needed for `gh release create`
+      id-token: write # needed for trusted publishing (crates.io OIDC)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build
+        run: cargo build --release
+
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+        id: auth
+
+      - name: Publish
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          NEW_TAG=$(git tag --sort=-creatordate | sed -n '1p')
+          OLD_TAG=$(git tag --sort=-creatordate | sed -n '2p')
+
+          # Oldest..newest tag limits the log to commits since the last release
+          RANGE="${OLD_TAG:+$OLD_TAG..}$NEW_TAG"
+          gh release create "$NEW_TAG" --notes "$(git log "$RANGE" --reverse --pretty=format:"* %s")"

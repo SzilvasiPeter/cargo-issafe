@@ -1,0 +1,50 @@
+[package]
+name = "cargo-issafe"
+version = "0.1.0"
+edition = "2024"
+description = "Minimalist Rust CLI for detecting unsafe keyword usage in crates and dependencies"
+license = "MIT"
+repository = "https://github.com/SzilvasiPeter/cargo-issafe"
+readme = "README.md"
+keywords = ["cargo", "unsafe", "audit", "security", "static-analysis"]
+categories = ["development-tools::cargo-plugins", "command-line-utilities", "development-tools"]
+
+[dependencies]
+rustc_lexer = { version = "0.1.0", default-features = false }
+
+[lints.rust]
+# Safety
+unsafe_code = "forbid"
+let_underscore_drop = "warn"
+
+# API Design
+missing_copy_implementations = "warn"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+unreachable_pub = "warn"
+unnameable_types = "warn"
+
+# Code Hygiene
+redundant_imports = "warn"
+unused_qualifications = "warn"
+unit_bindings = "warn"
+non_ascii_idents = "warn"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+cargo = "warn"
+
+# restriction lint group
+absolute_paths = "warn"
+doc_paragraphs_missing_punctuation = "warn"
+expect_used = "warn"
+infinite_loop = "warn"
+let_underscore_must_use = "warn"
+min_ident_chars = "warn"
+panic = "warn"
+redundant_type_annotations = "warn"
+ref_patterns = "warn"
+unwrap_used = "warn"
+wildcard_enum_match_arm = "warn"
