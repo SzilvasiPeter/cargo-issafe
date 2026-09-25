@@ -1,6 +1,6 @@
 [package]
 name = "cargo-issafe"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Minimalist Rust CLI for detecting unsafe keyword usage in crates and dependencies"
 license = "MIT"
