@@ -7,22 +7,22 @@ use std::path::{Path, PathBuf};
 
 use crate::error::IsSafeError;
 
-/// The `unsafe` status of a crate's source.
+/// The crate's `unsafe` code policy and usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Unsafe {
+pub enum Safety {
     /// The crate has `#![forbid(unsafe_code)]`, so `unsafe` is blocked.
-    Forbidden,
+    ForbidsUnsafe,
     /// The crate allows `unsafe`, but none is used.
-    Absent,
+    NoUnsafe,
     /// The crate uses `unsafe`.
-    Present,
+    UsesUnsafe,
 }
 
 /// Scan dependency `.d` files under `deps_dir` for `unsafe` usage.
 /// # Errors
 /// Returns [`IsSafeError::Io`] if a dependency file or source file can't be read, or
 /// [`IsSafeError::MissingEntryPoint`] if no `.rs` entry point is found.
-pub fn unsafe_status(deps_dir: impl AsRef<Path>) -> Result<Vec<(String, Unsafe)>, IsSafeError> {
+pub fn dependency_safety(deps_dir: impl AsRef<Path>) -> Result<Vec<(String, Safety)>, IsSafeError> {
     let mut results = Vec::new();
     for path in fs::read_dir(deps_dir.as_ref())?
         .flatten()
@@ -30,7 +30,7 @@ pub fn unsafe_status(deps_dir: impl AsRef<Path>) -> Result<Vec<(String, Unsafe)>
         .filter(|path| path.extension().is_some_and(|ext| ext == "d"))
     {
         // The crate name is the first dash-separated part of the file name, e.g. rustc_lexer-bfc1ea28fe193e21.d
-        let name = path
+        let crate_name = path
             .file_stem()
             .and_then(|stem| stem.to_str())
             .and_then(|stem| stem.split('-').next())
@@ -57,26 +57,33 @@ pub fn unsafe_status(deps_dir: impl AsRef<Path>) -> Result<Vec<(String, Unsafe)>
             // Crates sometimes include non source code (e.g. markdown, data) files, exclude them since they can't be tokenized
             .filter(|source| source.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs")))
             .collect();
-        if sources.is_empty() {
-            return Err(IsSafeError::MissingEntryPoint);
-        }
 
-        // The first source file is the crate entry point.
-        // If the entry point forbids unsafe code, then the crate is safe.
-        let entry_content = fs::read_to_string(&sources[0])?;
-        if strip_comments(&entry_content).contains("#![forbid(unsafe_code)]") {
-            results.push((name, Unsafe::Forbidden));
-            continue;
-        }
-
-        let mut count = count_unsafe(&entry_content);
-        for source in &sources[1..] {
-            count += count_unsafe(&fs::read_to_string(source)?);
-        }
-        results.push((name, if count == 0 { Unsafe::Absent } else { Unsafe::Present }));
+        let crate_safety = crate_safety_profile(&sources)?;
+        results.push((crate_name, crate_safety));
     }
 
     Ok(results)
+}
+
+fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, IsSafeError> {
+    if sources.is_empty() {
+        return Err(IsSafeError::MissingEntryPoint);
+    }
+
+    // The first source file is the crate entry point.
+    // If the entry point forbids unsafe code, then the crate is safe.
+    let entry_content = fs::read_to_string(&sources[0])?;
+    if strip_comments(&entry_content).contains("#![forbid(unsafe_code)]") {
+        return Ok(Safety::ForbidsUnsafe);
+    }
+
+    let mut count = count_unsafe(&entry_content);
+    for source in &sources[1..] {
+        count += count_unsafe(&fs::read_to_string(source)?);
+    }
+    let safety = if count == 0 { Safety::NoUnsafe } else { Safety::UsesUnsafe };
+
+    Ok(safety)
 }
 
 /// Tokenize `source`, returning its text without comments.

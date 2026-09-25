@@ -5,7 +5,7 @@ use std::fs;
 use std::process::Command;
 use std::{error::Error, path::Path};
 
-use cargo_issafe::scan::{Unsafe, unsafe_status};
+use cargo_issafe::scan::{Safety, dependency_safety};
 
 // TODO: make the binary cargo plugin compatible
 fn main() -> Result<(), Box<dyn Error>> {
@@ -22,11 +22,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("cargo check failed".into());
     }
 
-    for (name, safety) in unsafe_status(&deps)? {
+    for (name, safety) in dependency_safety(&deps)? {
         let flag = match safety {
-            Unsafe::Forbidden => "safe",
-            Unsafe::Absent => "no unsafe usage",
-            Unsafe::Present => "unsafe",
+            Safety::ForbidsUnsafe => "safe",
+            Safety::NoUnsafe => "no unsafe usage",
+            Safety::UsesUnsafe => "unsafe",
         };
         println!("{name}: {flag}");
     }
