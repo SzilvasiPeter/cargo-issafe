@@ -24,9 +24,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for (name, safety) in dependency_safety(&deps)? {
         let flag = match safety {
-            Safety::ForbidsUnsafe => "safe",
-            Safety::NoUnsafe => "no unsafe usage",
-            Safety::UsesUnsafe => "unsafe",
+            Safety::ForbidsUnsafe => "safe".to_string(),
+            Safety::NoUnsafe => "no unsafe usage".to_string(),
+            Safety::UsesUnsafe(count) => format!("unsafe ({count})"),
         };
         println!("{name}: {flag}");
     }

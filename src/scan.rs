@@ -14,8 +14,8 @@ pub enum Safety {
     ForbidsUnsafe,
     /// The crate allows `unsafe`, but none is used.
     NoUnsafe,
-    /// The crate uses `unsafe`.
-    UsesUnsafe,
+    /// The crate uses `unsafe` the given number of times.
+    UsesUnsafe(usize),
 }
 
 /// Scan dependency `.d` files under `deps_dir` for `unsafe` usage.
@@ -81,9 +81,8 @@ fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, IsSafeError> {
     for source in &sources[1..] {
         count += count_unsafe(&fs::read_to_string(source)?);
     }
-    let safety = if count == 0 { Safety::NoUnsafe } else { Safety::UsesUnsafe };
 
-    Ok(safety)
+    Ok(if count == 0 { Safety::NoUnsafe } else { Safety::UsesUnsafe(count) })
 }
 
 /// Tokenize `source`, returning its text without comments.
