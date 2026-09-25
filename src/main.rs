@@ -5,7 +5,7 @@ use std::fs;
 use std::process::Command;
 use std::{error::Error, path::Path};
 
-use cargo_issafe::{Unsafe, unsafe_status};
+use cargo_issafe::scan::{Unsafe, unsafe_status};
 
 // TODO: make the binary cargo plugin compatible
 fn main() -> Result<(), Box<dyn Error>> {
