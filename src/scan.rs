@@ -38,23 +38,12 @@ pub fn dependency_safety(deps_dir: impl AsRef<Path>) -> Result<Vec<(String, Safe
             .to_string();
 
         // Gather all source code files from the dependency (.d) file:
-        // ```
-        // <we ignore these by filtering .rs files>
-        // /home/pszilvasi/ws/cargo-issafe/target/debug/deps/rustc_lexer-bfc1ea28fe193e21.d: ...
-        // /home/pszilvasi/ws/cargo-issafe/target/debug/deps/librustc_lexer-bfc1ea28fe193e21.rlib: ...
-        // /home/pszilvasi/ws/cargo-issafe/target/debug/deps/librustc_lexer-bfc1ea28fe193e21.rmeta: ...
-        //
-        // /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustc_lexer-0.1.0/src/lib.rs:
-        // /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustc_lexer-0.1.0/src/cursor.rs:
-        // /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustc_lexer-0.1.0/src/unescape.rs:
-        // ```
         let dep_info = fs::read_to_string(&path)?;
         let sources: Vec<PathBuf> = dep_info
             .lines()
             .map(str::trim)
             .filter_map(|line| line.split_once(':').map(|(registry_path, _)| registry_path.trim()))
             .map(PathBuf::from)
-            // Crates sometimes include non source code (e.g. markdown, data) files, exclude them since they can't be tokenized
             .filter(|source| source.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs")))
             .collect();
 
@@ -65,13 +54,13 @@ pub fn dependency_safety(deps_dir: impl AsRef<Path>) -> Result<Vec<(String, Safe
     Ok(results)
 }
 
+/// Scan the crate's source files for `unsafe` usage.
+/// The first source file is the crate entry point and if it forbids unsafe code, then the crate is safe.
 fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, IsSafeError> {
     if sources.is_empty() {
         return Err(IsSafeError::MissingEntryPoint);
     }
 
-    // The first source file is the crate entry point.
-    // If the entry point forbids unsafe code, then the crate is safe.
     let entry_content = fs::read_to_string(&sources[0])?;
     if strip_comments(&entry_content).contains("#![forbid(unsafe_code)]") {
         return Ok(Safety::ForbidsUnsafe);
@@ -85,7 +74,7 @@ fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, IsSafeError> {
     Ok(if count == 0 { Safety::NoUnsafe } else { Safety::UsesUnsafe(count) })
 }
 
-/// Tokenize `source`, returning its text without comments.
+/// Strip comments from the source code file's content.
 fn strip_comments(source: &str) -> String {
     let mut stripped = String::with_capacity(source.len());
     let mut offset = 0;
@@ -103,7 +92,7 @@ fn strip_comments(source: &str) -> String {
     stripped
 }
 
-/// Tokenize `source`, counting its `unsafe` idents.
+/// Count the `unsafe` ident in the source code file's content.
 fn count_unsafe(source: &str) -> usize {
     let mut count = 0;
     let mut offset = 0;
@@ -143,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn counts_only_unsafe_idents() {
+    fn counts_only_unsafe_ident() {
         assert_eq!(count_unsafe("unsafe fn f() { unsafe {} }\n// unsafe\nunsafe_ident"), 2);
     }
 }
