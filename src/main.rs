@@ -1,19 +1,20 @@
 //! Am I Safe?
 #![forbid(unsafe_code)]
 
-use std::error::Error;
 use std::fs;
 use std::process::Command;
+use std::{error::Error, path::Path};
 
-use cargo_issafe::{Unsafe, scan_unsafe};
+use cargo_issafe::{Unsafe, unsafe_status};
 
+// TODO: make the binary cargo plugin compatible
 fn main() -> Result<(), Box<dyn Error>> {
     let target_dir = "target/cargo-issafe";
     let deps = format!("{target_dir}/debug/deps");
 
-    // Remove the previous build so the .d files reflect only the current dependency graph.
-    if let Err(err) = fs::remove_dir_all(target_dir) {
-        println!("failed to remove {target_dir}: {err}");
+    // Remove the previous compilation if exists, so the .d files reflect the current dependency graph.
+    if Path::new(target_dir).is_dir() {
+        fs::remove_dir_all(target_dir)?;
     }
 
     let check = Command::new("cargo").args(["check", "--target-dir", target_dir]).status()?;
@@ -21,7 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("cargo check failed".into());
     }
 
-    for (name, safety) in scan_unsafe(&deps)? {
+    for (name, safety) in unsafe_status(&deps)? {
         let flag = match safety {
             Unsafe::Forbidden => "safe",
             Unsafe::Absent => "no unsafe usage",
