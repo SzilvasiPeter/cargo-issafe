@@ -27,11 +27,11 @@ Run it from your crate:
 cargo issafe
 ```
 
-The output shows how many times the unsafe keyword appears in each dependency.
+The output shows how many times the `unsafe` keyword appears in each dependency.
 
 ## How does it work under the hood?
 
-The tool walks your dependency tree, tallies unsafe keyword usage, and presents the findings. There is no macro parsing or deep cargo integration involved.
+The tool walks your dependency tree, counts unsafe ident, and presents the findings. There is no macro parsing or deep cargo integration involved.
 
 Dependency resolution relies on `cargo check`, which is quicker than a full build. Once resolved, the relevant crate sources are pulled from the local cargo registry and scanned for unsafe usage.
 
@@ -43,4 +43,4 @@ Contributions are welcome.
 
 MIT
 
-[^1]: The sole dependency is `rustc_lexer` which ships with the Rust standard library. While it does pull in unsafe dependencies (memchr, unicode-ident), neither cargo issafe nor cargo geiger can detect unsafe code within the Rust standard library itself.
+[^1]: The sole dependency is `rustc_lexer` which ships with the Rust standard library. While it does pull in unsafe dependencies (`memchr`, `unicode-ident`), neither cargo issafe nor cargo geiger can detect unsafe code within the Rust standard library itself.
