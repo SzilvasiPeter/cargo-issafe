@@ -1,4 +1,4 @@
-//! Am I Safe?
+//! Scans Rust project dependencies and reports their unsafe code usage.
 #![forbid(unsafe_code)]
 
 use std::fs;
@@ -7,7 +7,6 @@ use std::{error::Error, path::Path};
 
 use cargo_issafe::scan::{Safety, dependency_safety};
 
-// TODO: make the binary cargo plugin compatible
 fn main() -> Result<(), Box<dyn Error>> {
     let target_dir = "target/cargo-issafe";
     let deps = format!("{target_dir}/debug/deps");

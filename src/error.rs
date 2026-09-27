@@ -1,4 +1,4 @@
-//! Error types.
+//!  Error types that can occur while scanning crate sources.
 
 use std::error::Error;
 use std::fmt;
