@@ -132,7 +132,24 @@ mod tests {
     }
 
     #[test]
+    fn ignores_raw_identifier() {
+        let raw_ident = "let r#unsafe = 10;";
+        assert_eq!(count_unsafe(raw_ident), 0);
+    }
+
+    #[test]
     fn counts_only_unsafe_ident() {
         assert_eq!(count_unsafe("unsafe fn f() { unsafe {} }\n// unsafe\nunsafe_ident"), 2);
+    }
+
+    #[test]
+    fn counts_unsafe_in_macro() {
+        let macro_rule = "macro_rules! read_raw_ptr {
+            ($ptr:expr) => {
+                // The macro emits an unsafe block directly
+                unsafe { *$ptr }
+            };
+        }";
+        assert_eq!(count_unsafe(macro_rule), 1);
     }
 }
