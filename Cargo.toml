@@ -12,6 +12,13 @@ categories = ["development-tools::cargo-plugins", "command-line-utilities", "dev
 [dependencies]
 rustc_lexer = { version = "0.1.0", default-features = false }
 
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
 [lints.rust]
 # Safety
 unsafe_code = "forbid"
