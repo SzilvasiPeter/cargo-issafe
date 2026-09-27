@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# If a new run starts, cancel any older run for the same workflow and PR/branch.
+# Otherwise, a quick series of pushes would queue several full CI jobs, and only the latest one matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  ACTIONLINT_VERSION: 1.7.12
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Lint and safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+
+      - uses: taiki-e/install-action@9114bf4d891761788c546334fd37538eae1bf8b3 # v2.87.16
+        with:
+          tool: cargo-machete, cargo-audit, cargo-issafe, cargo-deny, just, shuck-cli, zizmor
+
+      - name: Install actionlint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name=actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz
+          gh release download "v$ACTIONLINT_VERSION" --repo rhysd/actionlint --pattern "$name" --dir "$RUNNER_TEMP/actionlint"
+          gh attestation verify "$RUNNER_TEMP/actionlint/$name" --repo rhysd/actionlint
+          tar -xzf "$RUNNER_TEMP/actionlint/$name" -C "$RUNNER_TEMP/actionlint"
+          echo "$RUNNER_TEMP/actionlint" >> "$GITHUB_PATH"
+
+      - name: Lint
+        run: just lint
+
+      - name: Lint workflows
+        run: just lint-workflows
+
+      # TODO: Add just coverage steps
+
+      - name: Safety
+        run: just safety
+
+      # TODO: Create GH page coverage report
