@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 # If a new run starts, cancel any older run for the same workflow and PR/branch.
