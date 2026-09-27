@@ -43,4 +43,4 @@ Contributions are welcome.
 
 MIT
 
-[^1] *The sole dependency is `rustc_lexer` which ships with the Rust standard library. While it does pull in unsafe dependencies (memchr, unicode-ident), neither cargo issafe nor cargo geiger can detect unsafe code within the Rust standard library itself.*
+[^1]: The sole dependency is `rustc_lexer` which ships with the Rust standard library. While it does pull in unsafe dependencies (memchr, unicode-ident), neither cargo issafe nor cargo geiger can detect unsafe code within the Rust standard library itself.
