@@ -1,5 +1,6 @@
 //! Integration tests for the scan module.
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,7 +40,7 @@ fn assert_dependency_safety(sources: &[(&str, &str)], expected: Safety) {
     let safety_result = dependency_safety(&deps_dir);
     assert!(safety_result.is_ok());
     if let Ok(safety) = safety_result {
-        assert_eq!(safety, vec![("example".to_string(), expected)]);
+        assert_eq!(safety, HashMap::from([("example".to_string(), expected)]));
     }
 
     let cleanup_result = fs::remove_dir_all(&deps_dir);
@@ -93,7 +94,7 @@ fn skips_non_source_files_with_unsafe_content() {
 
 #[test]
 fn reports_io_error_for_non_existent_path() {
-    let safety_result = dependency_safety("non-existent");
+    let safety_result = dependency_safety(Path::new("non-existent"));
     assert!(matches!(safety_result, Err(IsSafeError::Io(_))));
 }
 
@@ -140,8 +141,8 @@ fn reports_forbids_unsafe_and_continues_to_next_dependency() {
     assert!(safety_result.is_ok());
     if let Ok(safety) = safety_result {
         assert_eq!(safety.len(), 2);
-        assert!(safety.contains(&("forbidden".to_string(), Safety::ForbidsUnsafe)));
-        assert!(safety.contains(&("next".to_string(), Safety::NoUnsafe)));
+        assert_eq!(safety.get("forbidden"), Some(&Safety::ForbidsUnsafe));
+        assert_eq!(safety.get("next"), Some(&Safety::NoUnsafe));
     }
 
     let cleanup_result = fs::remove_dir_all(&deps_dir);

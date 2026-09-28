@@ -2,6 +2,7 @@
 //!
 //! It reads cargo's `.d` dependency files and reports if unsafe code is forbidden, absent, or present in the crate.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -19,12 +20,17 @@ pub enum Safety {
 }
 
 /// Scan dependency `.d` files under `deps_dir` for `unsafe` usage.
+///
+/// Returns a map from crate name to its safety classification. Classifications are
+/// merged when multiple `.d` files share the same crate name, e.g.
+/// when a project has both a library and a binary crate with the same name.
+///
 /// # Errors
 /// Returns [`IsSafeError::Io`] if a dependency file or source file can't be read, or
 /// [`IsSafeError::MissingEntryPoint`] if no `.rs` entry point is found.
-pub fn dependency_safety(deps_dir: impl AsRef<Path>) -> Result<Vec<(String, Safety)>, IsSafeError> {
-    let mut results = Vec::new();
-    for path in fs::read_dir(deps_dir.as_ref())?
+pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, IsSafeError> {
+    let mut results = HashMap::new();
+    for path in fs::read_dir(deps_dir)?
         .flatten()
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "d"))
@@ -48,10 +54,27 @@ pub fn dependency_safety(deps_dir: impl AsRef<Path>) -> Result<Vec<(String, Safe
             .collect();
 
         let crate_safety = crate_safety_profile(&sources)?;
-        results.push((crate_name, crate_safety));
+        results
+            .entry(crate_name)
+            .and_modify(|existing| *existing = merge_safety(*existing, crate_safety))
+            .or_insert(crate_safety);
     }
 
     Ok(results)
+}
+
+/// Merge two safety classifications of the same crate.
+///
+/// `UsesUnsafe` dominates everything (counts are added when both sides use `unsafe`),
+/// `NoUnsafe` dominates `ForbidsUnsafe`, and equal variants merge into themselves.
+const fn merge_safety(existing: Safety, recent: Safety) -> Safety {
+    match (existing, recent) {
+        (Safety::UsesUnsafe(old), Safety::UsesUnsafe(new)) => Safety::UsesUnsafe(old + new),
+        (Safety::UsesUnsafe(_), _) => existing,
+        (_, Safety::UsesUnsafe(_)) => recent,
+        (Safety::NoUnsafe, _) | (_, Safety::NoUnsafe) => Safety::NoUnsafe,
+        (Safety::ForbidsUnsafe, Safety::ForbidsUnsafe) => Safety::ForbidsUnsafe,
+    }
 }
 
 /// Scan the crate's source files for `unsafe` usage.
@@ -108,7 +131,7 @@ fn count_unsafe(source: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{count_unsafe, strip_comments};
+    use super::{Safety as SFT, count_unsafe, merge_safety, strip_comments};
 
     #[test]
     fn removes_all_comment_styles() {
@@ -151,5 +174,30 @@ mod tests {
             };
         }";
         assert_eq!(count_unsafe(macro_rule), 1);
+    }
+
+    #[test]
+    fn merge_safety_adds_unsafe_counts() {
+        assert_eq!(merge_safety(SFT::UsesUnsafe(1), SFT::UsesUnsafe(2)), SFT::UsesUnsafe(3));
+    }
+
+    #[test]
+    fn merge_safety_unsafe_dominates() {
+        assert_eq!(merge_safety(SFT::UsesUnsafe(1), SFT::NoUnsafe), SFT::UsesUnsafe(1));
+        assert_eq!(merge_safety(SFT::NoUnsafe, SFT::UsesUnsafe(1)), SFT::UsesUnsafe(1));
+        assert_eq!(merge_safety(SFT::UsesUnsafe(1), SFT::ForbidsUnsafe), SFT::UsesUnsafe(1));
+        assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::UsesUnsafe(1)), SFT::UsesUnsafe(1));
+    }
+
+    #[test]
+    fn merge_safety_no_unsafe_dominates_forbids() {
+        assert_eq!(merge_safety(SFT::NoUnsafe, SFT::ForbidsUnsafe), SFT::NoUnsafe);
+        assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::NoUnsafe), SFT::NoUnsafe);
+    }
+
+    #[test]
+    fn merge_safety_equal_variants_merge_into_themselves() {
+        assert_eq!(merge_safety(SFT::NoUnsafe, SFT::NoUnsafe), SFT::NoUnsafe);
+        assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::ForbidsUnsafe), SFT::ForbidsUnsafe);
     }
 }

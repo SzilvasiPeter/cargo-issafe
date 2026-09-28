@@ -3,6 +3,7 @@
 
 use std::env::args;
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 use std::{error::Error, path::Path};
 
@@ -10,7 +11,7 @@ use cargo_issafe::scan::{Safety, dependency_safety};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let target_dir = "target/cargo-issafe";
-    let deps = format!("{target_dir}/debug/deps");
+    let deps = PathBuf::from(target_dir).join("debug/deps");
     let fail_on_unsafe = args().any(|arg| arg == "--fail-on-unsafe");
 
     // Remove the previous compilation if exists, so the .d files reflect the current dependency graph.
