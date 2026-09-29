@@ -1,6 +1,7 @@
 # cargo-issafe
 
 [![crates.io](https://img.shields.io/crates/v/cargo-issafe)](https://crates.io/crates/cargo-issafe)
+[![deps.rs](https://deps.rs/repo/github/SzilvasiPeter/cargo-issafe/status.svg)](https://deps.rs/repo/github/SzilvasiPeter/cargo-issafe)
 [![coverage](https://img.shields.io/endpoint?url=https://szilvasipeter.github.io/cargo-issafe/badge.json)](https://szilvasipeter.github.io/cargo-issafe/html/index.html)
 ![forbids-unsafe](https://img.shields.io/badge/forbids-unsafe-blue)
 ![ci](https://github.com/SzilvasiPeter/cargo-issafe/actions/workflows/ci.yml/badge.svg)
