@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cargo_issafe::error::IsSafeError;
+use cargo_issafe::error::ScanError;
 use cargo_issafe::scan::{Safety, dependency_safety};
 
 fn create_test_dir() -> PathBuf {
@@ -95,7 +95,7 @@ fn skips_non_source_files_with_unsafe_content() {
 #[test]
 fn reports_io_error_for_non_existent_path() {
     let safety_result = dependency_safety(Path::new("non-existent"));
-    assert!(matches!(safety_result, Err(IsSafeError::Io(_))));
+    assert!(matches!(safety_result, Err(ScanError::Io(_))));
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn reports_missing_entry_point_for_dependency_without_sources() {
     write_dependency(&deps_dir, "example", &[]);
 
     let safety_result = dependency_safety(&deps_dir);
-    assert!(matches!(safety_result, Err(IsSafeError::MissingEntryPoint)));
+    assert!(matches!(safety_result, Err(ScanError::MissingEntryPoint)));
 
     let cleanup_result = fs::remove_dir_all(&deps_dir);
     assert!(cleanup_result.is_ok());

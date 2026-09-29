@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::error::IsSafeError;
+use crate::error::ScanError;
 
 /// The crate's `unsafe` code policy and usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,14 +21,17 @@ pub enum Safety {
 
 /// Scan dependency `.d` files under `deps_dir` for `unsafe` usage.
 ///
-/// Returns a map from crate name to its safety classification. Classifications are
-/// merged when multiple `.d` files share the same crate name, e.g.
-/// when a project has both a library and a binary crate with the same name.
+/// Returns a map from crate name to its safety classification.
+/// Classifications are merged when multiple `.d` files share the same crate name,
+/// e.g. when a project has both a library and a binary crate with the same name.
+///
+/// # Arguments
+/// * `deps_dir` - Path to the directory containing dependency `.d` files to scan.
 ///
 /// # Errors
-/// Returns [`IsSafeError::Io`] if a dependency file or source file can't be read, or
-/// [`IsSafeError::MissingEntryPoint`] if no `.rs` entry point is found.
-pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, IsSafeError> {
+/// Returns [`ScanError::Io`] if a dependency file or source file can't be read,
+/// or [`ScanError::MissingEntryPoint`] if no `.rs` entry point is found.
+pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, ScanError> {
     let mut results = HashMap::new();
     for path in fs::read_dir(deps_dir)?
         .flatten()
@@ -55,6 +58,7 @@ pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, IsS
 
         let crate_safety = crate_safety_profile(&sources)?;
         results
+            // TODO: we also need the version because deps tree contains version info
             .entry(crate_name)
             .and_modify(|existing| *existing = merge_safety(*existing, crate_safety))
             .or_insert(crate_safety);
@@ -79,9 +83,9 @@ const fn merge_safety(existing: Safety, recent: Safety) -> Safety {
 
 /// Scan the crate's source files for `unsafe` usage.
 /// The first source file is the crate entry point and if it forbids unsafe code, then the crate is safe.
-fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, IsSafeError> {
+fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, ScanError> {
     if sources.is_empty() {
-        return Err(IsSafeError::MissingEntryPoint);
+        return Err(ScanError::MissingEntryPoint);
     }
 
     let entry_content = fs::read_to_string(&sources[0])?;
