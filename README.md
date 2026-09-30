@@ -34,7 +34,15 @@ Run it from your crate:
 cargo issafe
 ```
 
-The output shows how many times the `unsafe` keyword appears in each dependency.
+The output shows how many times the `unsafe` keyword appears in each dependency:
+
+```
+- cargo_issafe [safe]
+  - rustc_lexer-0.1.0 [0 unsafe]
+    - unicode_xid-0.2.6 [safe]
+```
+
+> Note: The "0 unsafe" means that the crate doesn't use unsafe code, but it does not forbid it with the `#![forbid(unsafe_code)]` attribute.
 
 ## How does it work under the hood?
 
