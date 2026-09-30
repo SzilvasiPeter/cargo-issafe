@@ -1,6 +1,6 @@
 //! A library for detecting `unsafe` usage in dependency crates.
 //!
-//! It reads cargo's `.d` dependency files and reports if unsafe code is forbidden, absent, or present in the crate.
+//! It reads Cargo .d files to check if unsafe code is forbidden, absent, or present in a crate.
 
 use std::collections::HashMap;
 use std::fs;
@@ -21,7 +21,7 @@ pub enum Safety {
 
 /// Scan dependency `.d` files under `deps_dir` for `unsafe` usage.
 ///
-/// Returns a map from crate name to its safety classification.
+/// Returns a map from crate name with version to its safety classification.
 /// Classifications are merged when multiple `.d` files share the same crate name,
 /// e.g. when a project has both a library and a binary crate with the same name.
 ///
@@ -38,7 +38,7 @@ pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, Sca
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "d"))
     {
-        // The crate name is the first dash-separated part of the file name, e.g. rustc_lexer-bfc1ea28fe193e21.d
+        // Crate name is the part before the first dash, e.g. rustc_lexer-bfc1ea28fe193e21.d
         let crate_name = path
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -46,7 +46,7 @@ pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, Sca
             .unwrap_or_default()
             .to_string();
 
-        // Gather all source code files from the dependency (.d) file:
+        // Gather all source code files from the dependency (.d) file.
         let dep_info = fs::read_to_string(&path)?;
         let sources: Vec<PathBuf> = dep_info
             .lines()
@@ -56,9 +56,13 @@ pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, Sca
             .filter(|source| source.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs")))
             .collect();
 
+        let version = extract_version(&dep_info);
+        let crate_name = match version {
+            Some(version) => format!("{crate_name}-{version}"),
+            None => crate_name,
+        };
         let crate_safety = crate_safety_profile(&sources)?;
         results
-            // TODO: we also need the version because deps tree contains version info
             .entry(crate_name)
             .and_modify(|existing| *existing = merge_safety(*existing, crate_safety))
             .or_insert(crate_safety);
@@ -67,22 +71,19 @@ pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, Sca
     Ok(results)
 }
 
-/// Merge two safety classifications of the same crate.
+/// Extract the crate version from a dependency (.d) file's content.
 ///
-/// `UsesUnsafe` dominates everything (counts are added when both sides use `unsafe`),
-/// `NoUnsafe` dominates `ForbidsUnsafe`, and equal variants merge into themselves.
-const fn merge_safety(existing: Safety, recent: Safety) -> Safety {
-    match (existing, recent) {
-        (Safety::UsesUnsafe(old), Safety::UsesUnsafe(new)) => Safety::UsesUnsafe(old + new),
-        (Safety::UsesUnsafe(_), _) => existing,
-        (_, Safety::UsesUnsafe(_)) => recent,
-        (Safety::NoUnsafe, _) | (_, Safety::NoUnsafe) => Safety::NoUnsafe,
-        (Safety::ForbidsUnsafe, Safety::ForbidsUnsafe) => Safety::ForbidsUnsafe,
-    }
+/// Example: the `0.2.6` version from `.cargo/registry/src/.../unicode-xid-0.2.6/src/lib.rs:` line.
+fn extract_version(dep_info: &str) -> Option<&str> {
+    dep_info.lines().find(|line| line.contains(".rs:")).and_then(|line| {
+        let src_pos = line.rfind("/src")?;
+        let dash_pos = line[..src_pos].rfind('-')?;
+        Some(&line[dash_pos + 1..src_pos])
+    })
 }
 
 /// Scan the crate's source files for `unsafe` usage.
-/// The first source file is the crate entry point and if it forbids unsafe code, then the crate is safe.
+/// If the first file (entry point) forbids unsafe code, then the crate is safe.
 fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, ScanError> {
     if sources.is_empty() {
         return Err(ScanError::MissingEntryPoint);
@@ -133,9 +134,23 @@ fn count_unsafe(source: &str) -> usize {
     count
 }
 
+/// Merge two safety classifications of the same crate.
+///
+/// `UsesUnsafe` dominates everything (counts are added when both sides use `unsafe`),
+/// `NoUnsafe` dominates `ForbidsUnsafe`, and equal variants merge into themselves.
+const fn merge_safety(existing: Safety, recent: Safety) -> Safety {
+    match (existing, recent) {
+        (Safety::UsesUnsafe(old), Safety::UsesUnsafe(new)) => Safety::UsesUnsafe(old + new),
+        (Safety::UsesUnsafe(_), _) => existing,
+        (_, Safety::UsesUnsafe(_)) => recent,
+        (Safety::NoUnsafe, _) | (_, Safety::NoUnsafe) => Safety::NoUnsafe,
+        (Safety::ForbidsUnsafe, Safety::ForbidsUnsafe) => Safety::ForbidsUnsafe,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Safety as SFT, count_unsafe, merge_safety, strip_comments};
+    use super::{Safety as SFT, count_unsafe, extract_version, merge_safety, strip_comments};
 
     #[test]
     fn removes_all_comment_styles() {
@@ -178,6 +193,22 @@ mod tests {
             };
         }";
         assert_eq!(count_unsafe(macro_rule), 1);
+    }
+
+    #[test]
+    fn extracts_version_from_dep_info() {
+        let dep_info = "
+            /home/pszilvasi/ws/cargo-issafe/target/debug/deps/unicode_xid-39a96c518b5bd65a.d: /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs
+
+            /home/pszilvasi/ws/cargo-issafe/target/debug/deps/libunicode_xid-39a96c518b5bd65a.rlib: /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs
+
+            /home/pszilvasi/ws/cargo-issafe/target/debug/deps/libunicode_xid-39a96c518b5bd65a.rmeta: /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs
+
+            /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs:
+            /home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs:
+            ";
+
+        assert_eq!(extract_version(dep_info), Some("0.2.6"));
     }
 
     #[test]

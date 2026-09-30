@@ -12,6 +12,7 @@
 //! [`dependency_safety`]: scan::dependency_safety
 
 #![forbid(unsafe_code)]
+#![warn(clippy::print_stdout, clippy::print_stderr)]
 pub mod error;
 pub mod scan;
 pub mod tree;
