@@ -18,7 +18,7 @@ fn create_test_dir() -> PathBuf {
     path
 }
 
-fn write_dependency(deps_dir: &Path, crate_name: &str, sources: &[(&str, &str)]) {
+fn write_dependency(deps_dir: &Path, dep_file_name: &str, sources: &[(&str, &str)]) {
     let mut dep_info = String::new();
     for &(source_name, source) in sources {
         let source_path = deps_dir.join(source_name);
@@ -28,14 +28,14 @@ fn write_dependency(deps_dir: &Path, crate_name: &str, sources: &[(&str, &str)])
         dep_info.push_str(":\n");
     }
 
-    let dep_path = deps_dir.join(format!("{crate_name}-123.d"));
+    let dep_path = deps_dir.join(dep_file_name);
     let dep_result = fs::write(dep_path, dep_info);
     assert!(dep_result.is_ok());
 }
 
 fn assert_dependency_safety(sources: &[(&str, &str)], expected: Safety) {
     let deps_dir = create_test_dir();
-    write_dependency(&deps_dir, "example", sources);
+    write_dependency(&deps_dir, "example-123.d", sources);
 
     let safety_result = dependency_safety(&deps_dir);
     assert!(safety_result.is_ok());
@@ -115,7 +115,7 @@ fn returns_no_dependencies_when_directory_has_no_d_files() {
 #[test]
 fn reports_missing_entry_point_for_dependency_without_sources() {
     let deps_dir = create_test_dir();
-    write_dependency(&deps_dir, "example", &[]);
+    write_dependency(&deps_dir, "example-123.d", &[]);
 
     let safety_result = dependency_safety(&deps_dir);
     assert!(matches!(safety_result, Err(ScanError::MissingEntryPoint)));
@@ -129,13 +129,13 @@ fn reports_forbids_unsafe_and_continues_to_next_dependency() {
     let deps_dir = create_test_dir();
     write_dependency(
         &deps_dir,
-        "forbidden",
+        "forbidden-123.d",
         &[
             ("forbidden_lib.rs", "#![forbid(unsafe_code)]\n"),
             ("forbidden_module.rs", "pub unsafe fn value() {}\n"),
         ],
     );
-    write_dependency(&deps_dir, "next", &[("next_lib.rs", "pub fn value() {}\n")]);
+    write_dependency(&deps_dir, "next-123.d", &[("next_lib.rs", "pub fn value() {}\n")]);
 
     let safety_result = dependency_safety(&deps_dir);
     assert!(safety_result.is_ok());
@@ -143,6 +143,48 @@ fn reports_forbids_unsafe_and_continues_to_next_dependency() {
         assert_eq!(safety.len(), 2);
         assert_eq!(safety.get("forbidden"), Some(&Safety::ForbidsUnsafe));
         assert_eq!(safety.get("next"), Some(&Safety::NoUnsafe));
+    }
+
+    let cleanup_result = fs::remove_dir_all(&deps_dir);
+    assert!(cleanup_result.is_ok());
+}
+
+#[test]
+fn combines_unsafe_usage_from_multiple_d_files_with_same_crate_name() {
+    let deps_dir = create_test_dir();
+    write_dependency(&deps_dir, "example-123.d", &[("lib_0.rs", "pub unsafe fn value() {}\n")]);
+    write_dependency(&deps_dir, "example-456.d", &[("lib_1.rs", "pub unsafe fn other() {}\n")]);
+
+    let safety_result = dependency_safety(&deps_dir);
+    assert!(safety_result.is_ok());
+    if let Ok(safety) = safety_result {
+        assert_eq!(safety, HashMap::from([("example".to_string(), Safety::UsesUnsafe(2))]));
+    }
+
+    let cleanup_result = fs::remove_dir_all(&deps_dir);
+    assert!(cleanup_result.is_ok());
+}
+
+#[test]
+fn reports_versioned_crate_name_from_registry_path() {
+    let deps_dir = create_test_dir();
+
+    let registry_dir = deps_dir.join(".cargo/registry/src/index.crates.io-123/example-0.1.0/src");
+    let create_result = fs::create_dir_all(&registry_dir);
+    assert!(create_result.is_ok());
+
+    let source_path = registry_dir.join("lib.rs");
+    let write_result = fs::write(&source_path, "pub fn value() -> usize { 0 }\n");
+    assert!(write_result.is_ok());
+
+    let dep_path = deps_dir.join("example-123.d");
+    let dep_result = fs::write(&dep_path, format!("{}:\n", source_path.to_string_lossy()));
+    assert!(dep_result.is_ok());
+
+    let safety_result = dependency_safety(&deps_dir);
+    assert!(safety_result.is_ok());
+    if let Ok(safety) = safety_result {
+        assert_eq!(safety, HashMap::from([("example-0.1.0".to_string(), Safety::NoUnsafe)]));
     }
 
     let cleanup_result = fs::remove_dir_all(&deps_dir);
