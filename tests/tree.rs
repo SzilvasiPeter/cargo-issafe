@@ -1,5 +1,6 @@
 //! Integration tests for the tree module.
 
+#![allow(clippy::unwrap_used)]
 use cargo_issafe::error::TreeError;
 use cargo_issafe::tree::dependency_tree;
 
@@ -170,10 +171,9 @@ fn unresolved_dependency_errors() {
         ]
         "#;
 
-    assert_eq!(
-        dependency_tree("root_crate", input),
-        Err(TreeError::UnresolvedDependency("nonexistent".to_string()))
-    );
+    let err = dependency_tree("root_crate", input).unwrap_err();
+    assert_eq!(err, TreeError::UnresolvedDependency("nonexistent".to_string()));
+    assert_eq!(err.to_string(), "`nonexistent` is missing in the lockfile");
 }
 
 #[test]
@@ -184,15 +184,16 @@ fn unknown_root_errors() {
         version = "0.1.0"
         "#;
 
-    assert_eq!(
-        dependency_tree("nonexistent", input),
-        Err(TreeError::UnresolvedDependency("nonexistent".to_string()))
-    );
+    let err = dependency_tree("nonexistent", input).unwrap_err();
+    assert_eq!(err, TreeError::UnresolvedDependency("nonexistent".to_string()));
+    assert_eq!(err.to_string(), "`nonexistent` is missing in the lockfile");
 }
 
 #[test]
 fn empty_lockfile_errors() {
-    assert_eq!(dependency_tree("root_crate", "version = 4\n"), Err(TreeError::Empty));
+    let err = dependency_tree("root_crate", "version = 4\n").unwrap_err();
+    assert_eq!(err, TreeError::Empty);
+    assert_eq!(err.to_string(), "lockfile contains no packages");
 }
 
 #[test]
@@ -207,7 +208,9 @@ fn unescaped_name_field_errors() {
         version = "0.1.0"
         "#;
 
-    assert_eq!(dependency_tree("root_crate", input), Err(TreeError::MissingField));
+    let err = dependency_tree("root_crate", input).unwrap_err();
+    assert_eq!(err, TreeError::MissingField);
+    assert_eq!(err.to_string(), "package block is missing `name` or `version`");
 }
 
 #[test]
@@ -222,7 +225,9 @@ fn empty_name_field_errors() {
         version = "0.1.0"
         "#;
 
-    assert_eq!(dependency_tree("root_crate", input), Err(TreeError::MissingField));
+    let err = dependency_tree("root_crate", input).unwrap_err();
+    assert_eq!(err, TreeError::MissingField);
+    assert_eq!(err.to_string(), "package block is missing `name` or `version`");
 }
 
 #[test]
@@ -232,5 +237,7 @@ fn missing_version_field_errors() {
         name = "root-crate"
         "#;
 
-    assert_eq!(dependency_tree("root_crate", input), Err(TreeError::MissingField));
+    let err = dependency_tree("root_crate", input).unwrap_err();
+    assert_eq!(err, TreeError::MissingField);
+    assert_eq!(err.to_string(), "package block is missing `name` or `version`");
 }

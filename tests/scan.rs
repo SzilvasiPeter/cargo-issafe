@@ -1,7 +1,9 @@
 //! Integration tests for the scan module.
 
+#![allow(clippy::unwrap_used)]
 use std::collections::HashMap;
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -94,8 +96,10 @@ fn skips_non_source_files_with_unsafe_content() {
 
 #[test]
 fn reports_io_error_for_non_existent_path() {
-    let safety_result = dependency_safety(Path::new("non-existent"));
-    assert!(matches!(safety_result, Err(ScanError::Io(_))));
+    let scan_err = dependency_safety(Path::new("non-existent")).unwrap_err();
+    assert!(matches!(scan_err, ScanError::Io(_)));
+    assert!(scan_err.to_string().starts_with("Failed to read source file"));
+    assert!(scan_err.source().is_some());
 }
 
 #[test]
@@ -117,8 +121,10 @@ fn reports_missing_entry_point_for_dependency_without_sources() {
     let deps_dir = create_test_dir();
     write_dependency(&deps_dir, "example-123.d", &[]);
 
-    let safety_result = dependency_safety(&deps_dir);
-    assert!(matches!(safety_result, Err(ScanError::MissingEntryPoint)));
+    let scan_err = dependency_safety(&deps_dir).unwrap_err();
+    assert!(matches!(scan_err, ScanError::MissingEntryPoint));
+    assert_eq!(scan_err.to_string(), "Entry point is not found");
+    assert!(scan_err.source().is_none());
 
     let cleanup_result = fs::remove_dir_all(&deps_dir);
     assert!(cleanup_result.is_ok());
