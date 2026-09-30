@@ -25,13 +25,15 @@ fn cargo_issafe_lockfile() {
         version = "0.2.6"
         "#;
 
-    let tree = dependency_tree("cargo-issafe", input);
+    let tree = dependency_tree("cargo_issafe", input);
     assert!(tree.is_ok());
     if let Ok(tree) = tree {
         assert_eq!(tree.root, 0);
-        assert_eq!(tree.nodes[0].name, "cargo-issafe");
+        assert_eq!(tree.nodes[0].id, "cargo_issafe");
         assert_eq!(tree.nodes[0].dependencies, [1]);
+        assert_eq!(tree.nodes[1].id, "rustc_lexer-0.1.0");
         assert_eq!(tree.nodes[1].dependencies, [2]);
+        assert_eq!(tree.nodes[2].id, "unicode_xid-0.2.6");
         assert_eq!(tree.nodes[2].dependencies, []);
     }
 }
@@ -53,15 +55,17 @@ fn versioned_dependencies() {
 
         [[package]]
         name = "syn"
+        version = "0.1.0"
+
+        [[package]]
+        name = "syn"
         version = "3.0.6"
         "#;
 
-    let tree = dependency_tree("root-crate", input);
+    let tree = dependency_tree("root_crate", input);
     assert!(tree.is_ok());
     if let Ok(tree) = tree {
-        // Versioned entries must resolve to the matching `syn`, not the
-        // first one in the file.
-        assert_eq!(tree.nodes[0].dependencies, [1, 2]);
+        assert_eq!(tree.nodes[0].dependencies, [1, 3]);
     }
 }
 
@@ -88,7 +92,7 @@ fn unversioned_dependencies() {
         version = "2.0.0"
         "#;
 
-    let tree = dependency_tree("root-crate", input);
+    let tree = dependency_tree("root_crate", input);
     assert!(tree.is_ok());
     if let Ok(tree) = tree {
         assert_eq!(tree.root, 0);
@@ -118,11 +122,11 @@ fn root_is_not_first() {
         version = "2.0.0"
         "#;
 
-    let tree = dependency_tree("root-crate", input);
+    let tree = dependency_tree("root_crate", input);
     assert!(tree.is_ok());
     if let Ok(tree) = tree {
         assert_eq!(tree.root, 1);
-        assert_eq!(tree.nodes[tree.root].name, "root-crate");
+        assert_eq!(tree.nodes[tree.root].id, "root_crate");
         assert_eq!(tree.nodes[0].dependencies, []);
         assert_eq!(tree.nodes[1].dependencies, [0, 2]);
         assert_eq!(tree.nodes[2].dependencies, []);
@@ -148,7 +152,7 @@ fn ambiguous_dependency_resolves_to_first() {
         version = "3.0.6"
         "#;
 
-    let tree = dependency_tree("root-crate", input);
+    let tree = dependency_tree("root_crate", input);
     assert!(tree.is_ok());
     if let Ok(tree) = tree {
         assert_eq!(tree.nodes[0].dependencies, [1]);
@@ -167,7 +171,7 @@ fn unresolved_dependency_errors() {
         "#;
 
     assert_eq!(
-        dependency_tree("root-crate", input),
+        dependency_tree("root_crate", input),
         Err(TreeError::UnresolvedDependency("nonexistent".to_string()))
     );
 }
@@ -188,15 +192,45 @@ fn unknown_root_errors() {
 
 #[test]
 fn empty_lockfile_errors() {
-    assert_eq!(dependency_tree("root-crate", "version = 4\n"), Err(TreeError::Empty));
+    assert_eq!(dependency_tree("root_crate", "version = 4\n"), Err(TreeError::Empty));
 }
 
 #[test]
-fn missing_field_errors() {
+fn unescaped_name_field_errors() {
+    let input = r#"
+        [[package]]
+        name = "root_crate"
+        version = "0.1.0"
+
+        [[package]]
+        name = unescaped
+        version = "0.1.0"
+        "#;
+
+    assert_eq!(dependency_tree("root_crate", input), Err(TreeError::MissingField));
+}
+
+#[test]
+fn empty_name_field_errors() {
+    let input = r#"
+        [[package]]
+        name = "root_crate"
+        version = "0.1.0"
+
+        [[package]]
+        name = ""
+        version = "0.1.0"
+        "#;
+
+    assert_eq!(dependency_tree("root_crate", input), Err(TreeError::MissingField));
+}
+
+#[test]
+fn missing_version_field_errors() {
     let input = r#"
         [[package]]
         name = "root-crate"
         "#;
 
-    assert_eq!(dependency_tree("root-crate", input), Err(TreeError::MissingField));
+    assert_eq!(dependency_tree("root_crate", input), Err(TreeError::MissingField));
 }

@@ -53,9 +53,7 @@ impl fmt::Display for TreeError {
         match self {
             Self::Empty => write!(f, "lockfile contains no packages"),
             Self::MissingField => write!(f, "package block is missing `name` or `version`"),
-            Self::UnresolvedDependency(dep) => {
-                write!(f, "dependency `{dep}` does not match any package in the lockfile")
-            }
+            Self::UnresolvedDependency(dep) => write!(f, "`{dep}` is missing in the lockfile"),
         }
     }
 }

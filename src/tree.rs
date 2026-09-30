@@ -4,20 +4,18 @@ use crate::error::TreeError;
 
 /// A single package node in the dependency tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Package<'a> {
-    /// The package name.
-    pub name: &'a str,
-    /// The package version.
-    pub version: &'a str,
+pub struct Package {
+    /// Package ID formatted as `<crate_name>-<version>` (the root crate drops the version info).
+    pub id: String,
     /// Indices of this package's dependencies within [`DependencyTree::nodes`].
     pub dependencies: Vec<usize>,
 }
 
 /// A parsed Cargo.lock dependency tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DependencyTree<'a> {
+pub struct DependencyTree {
     /// All package nodes, indexed by position.
-    pub nodes: Vec<Package<'a>>,
+    pub nodes: Vec<Package>,
     /// Index of the root package (the crate itself) in `nodes`.
     pub root: usize,
 }
@@ -25,74 +23,54 @@ pub struct DependencyTree<'a> {
 /// Parses a Cargo.lock file's contents into a [`DependencyTree`].
 ///
 /// # Arguments
-/// * `root` - The name of the package to start building the tree from.
+/// * `root_crate` - The root crate name (in snake case) to start building the tree from.
 /// * `lockfile` - The string content of the `Cargo.lock` file to parse.
 ///
 /// # Errors
 /// Returns a [`TreeError`] if the lockfile is invalid such as containing no packages,
 /// a package block is missing its name or version, or a dependency does not match any package.
-pub fn dependency_tree<'a>(root: &str, lockfile: &'a str) -> Result<DependencyTree<'a>, TreeError> {
+pub fn dependency_tree(root_crate: &str, lockfile: &str) -> Result<DependencyTree, TreeError> {
     let packages: Vec<&str> =
         lockfile.split("[[package]]").filter(|pkg| pkg.contains("name = ")).collect();
     if packages.is_empty() {
         return Err(TreeError::Empty);
     }
 
+    let mut root = None;
     let nodes: Vec<Package> = packages
         .iter()
-        .map(|package| {
-            let name = extract_val(package, "name = ").ok_or(TreeError::MissingField)?;
-            let version = extract_val(package, "version = ").ok_or(TreeError::MissingField)?;
-            let dependencies = collect_deps(package)
+        .enumerate()
+        .map(|(i, pkg)| {
+            let name = get_value(pkg, "name = ").ok_or(TreeError::MissingField)?.replace('-', "_");
+            let version = get_value(pkg, "version = ").ok_or(TreeError::MissingField)?;
+            let id = if name == root_crate {
+                root = Some(i);
+                name
+            } else {
+                format!("{name}-{version}")
+            };
+
+            let dependencies = collect_deps(pkg)
                 .into_iter()
                 .map(|dep| resolve_dep(dep, &packages))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(Package { name, version, dependencies })
+            Ok(Package { id, dependencies })
         })
         .collect::<Result<_, _>>()?;
 
-    let root = nodes
-        .iter()
-        .position(|node| node.name == root)
-        .ok_or_else(|| TreeError::UnresolvedDependency(root.to_string()))?;
+    let root = root.ok_or_else(|| TreeError::UnresolvedDependency(root_crate.to_string()))?;
 
     Ok(DependencyTree { nodes, root })
 }
 
-/// Resolves a single dependency entry (e.g. `"syn 2.0.119"`) to the index of the matching package.
-///
-/// When the entry carries a version, the version must match as well.
-/// If not, the first package with a matching name is used.
-fn resolve_dep(dep: &str, packages: &[&str]) -> Result<usize, TreeError> {
-    let (name, version) = parse_dep(dep);
-
-    packages
-        .iter()
-        .position(|block| {
-            extract_val(block, "name = ") == Some(name)
-                && version.is_none_or(|wanted| extract_val(block, "version = ") == Some(wanted))
-        })
-        .ok_or_else(|| TreeError::UnresolvedDependency(dep.to_string()))
-}
-
-// TODO: we need to extract name and version together to get the unique identification, just cut the source part from it
-/// Splits a dependency entry into its name and optional version.
-///
-/// Cargo.lock dependency entries look like "name", "name version", or "name version (source)";
-/// only the name and version is meaningful.
-fn parse_dep(dep: &str) -> (&str, Option<&str>) {
-    let mut parts = dep.split_whitespace();
-    let name = parts.next().unwrap_or(dep);
-    (name, parts.next())
-}
-
 // Extract the value based on the key from a package block.
-fn extract_val<'a>(package: &'a str, key: &str) -> Option<&'a str> {
+fn get_value<'a>(package: &'a str, key: &str) -> Option<&'a str> {
     package
         .lines()
         .map(str::trim)
         .find(|line| line.starts_with(key))
         .and_then(|line| line.split('"').nth(1))
+        .filter(|value| !value.is_empty())
 }
 
 // Collect the dependencies from a package block.
@@ -104,4 +82,21 @@ fn collect_deps(package: &str) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-// TODO: create unit test for the private functions
+/// Resolves a single dependency entry (e.g. `"syn 2.0.119"`) to the index of the matching package.
+///
+/// Cargo.lock dependencies look like "name version source"; only the name and version is meaningful.
+/// When the dependency has a version, the version must match.
+/// If not, the return the first package with the matching name.
+fn resolve_dep(dep: &str, packages: &[&str]) -> Result<usize, TreeError> {
+    let mut parts = dep.split_whitespace();
+    let name = parts.next().unwrap_or(dep);
+    let version = parts.next();
+
+    packages
+        .iter()
+        .position(|package| {
+            get_value(package, "name = ") == Some(name)
+                && version.is_none_or(|wanted| get_value(package, "version = ") == Some(wanted))
+        })
+        .ok_or_else(|| TreeError::UnresolvedDependency(dep.to_string()))
+}
