@@ -55,3 +55,7 @@ redundant_type_annotations = "warn"
 ref_patterns = "warn"
 unwrap_used = "warn"
 wildcard_enum_match_arm = "warn"
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+predicates = "3.1.3"
