@@ -12,6 +12,8 @@ const BLUE: &str = "\x1b[34m";
 const RED: &str = "\x1b[31m";
 const RESET: &str = "\x1b[0m";
 
+type SafetyMap<S> = HashMap<String, Safety, S>;
+
 /// A single package node in the dependency tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Package {
@@ -116,31 +118,15 @@ fn resolve_dep(dep: &str, packages: &[&str]) -> Result<usize, TreeError> {
 /// Each line represents a package with its safety classification, indented by depth.
 /// Already visited packages are not expanded again.
 #[must_use]
-pub fn format_tree<S: BuildHasher>(
-    tree: &DependencyTree,
-    safeties: &HashMap<String, Safety, S>,
-) -> String {
+pub fn format_tree<S: BuildHasher>(tree: &DependencyTree, safety_map: &SafetyMap<S>) -> String {
     let mut visited = HashSet::new();
     let mut output = String::new();
-    format_node(tree, tree.root, safeties, 0, &mut visited, &mut output);
-    output
-}
-
-fn format_node<S: BuildHasher>(
-    tree: &DependencyTree,
-    idx: usize,
-    safeties: &HashMap<String, Safety, S>,
-    depth: usize,
-    visited: &mut HashSet<String>,
-    output: &mut String,
-) {
-    let mut stack = vec![(idx, depth)];
+    let mut stack = vec![(tree.root, 0)];
 
     while let Some((idx, depth)) = stack.pop() {
         let node = &tree.nodes[idx];
         let id = &node.id;
-
-        let Some(safety) = safeties.get(id) else {
+        let Some(safety) = safety_map.get(id) else {
             continue;
         };
 
@@ -161,4 +147,6 @@ fn format_node<S: BuildHasher>(
             stack.push((dep_idx, depth + 1));
         }
     }
+
+    output
 }
