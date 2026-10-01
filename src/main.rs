@@ -1,7 +1,7 @@
 //! Scans Rust project and its dependencies and reports their unsafe code usage.
 #![forbid(unsafe_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env::args;
 use std::fs;
 use std::path::PathBuf;
@@ -56,10 +56,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn print_tree(tree: &DependencyTree, safeties: &HashMap<String, Safety>) {
-    print_node(tree, tree.root, safeties, 0);
+    let mut visited = HashSet::new();
+    print_node(tree, tree.root, safeties, 0, &mut visited);
 }
 
-fn print_node(tree: &DependencyTree, idx: usize, safeties: &HashMap<String, Safety>, depth: usize) {
+fn print_node(
+    tree: &DependencyTree,
+    idx: usize,
+    safeties: &HashMap<String, Safety>,
+    depth: usize,
+    visited: &mut HashSet<String>,
+) {
     let node = &tree.nodes[idx];
     let id = &node.id;
     if !safeties.contains_key(id) {
@@ -76,7 +83,11 @@ fn print_node(tree: &DependencyTree, idx: usize, safeties: &HashMap<String, Safe
     let indent = "  ".repeat(depth);
     println!("{indent}- {id} [{color}{label}{RESET}]");
 
+    if !visited.insert(id.clone()) {
+        return;
+    }
+
     for &dep_idx in &node.dependencies {
-        print_node(tree, dep_idx, safeties, depth + 1);
+        print_node(tree, dep_idx, safeties, depth + 1, visited);
     }
 }
