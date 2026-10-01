@@ -1,8 +1,11 @@
 //! Integration tests for the tree module.
 
 #![allow(clippy::unwrap_used)]
+use std::collections::HashMap;
+
 use cargo_issafe::error::TreeError;
-use cargo_issafe::tree::dependency_tree;
+use cargo_issafe::scan::Safety;
+use cargo_issafe::tree::{dependency_tree, format_tree};
 
 #[test]
 fn cargo_issafe_lockfile() {
@@ -240,4 +243,54 @@ fn missing_version_field_errors() {
     let err = dependency_tree("root_crate", input).unwrap_err();
     assert_eq!(err, TreeError::MissingField);
     assert_eq!(err.to_string(), "package block is missing `name` or `version`");
+}
+
+#[test]
+fn format_tree_collapses_repeated_dependencies() {
+    let input = r#"
+        [[package]]
+        name = "root-crate"
+        version = "0.1.0"
+        dependencies = [
+         "aaa",
+         "bbb",
+        ]
+
+        [[package]]
+        name = "aaa"
+        version = "1.0.0"
+        dependencies = [
+         "bbb",
+        ]
+
+        [[package]]
+        name = "bbb"
+        version = "2.0.0"
+        dependencies = [
+         "ccc",
+        ]
+
+        [[package]]
+        name = "ccc"
+        version = "3.0.0"
+        "#;
+
+    let tree = dependency_tree("root_crate", input).unwrap();
+
+    let mut safeties = HashMap::new();
+    safeties.insert("root_crate".to_string(), Safety::NoUnsafe);
+    safeties.insert("aaa-1.0.0".to_string(), Safety::ForbidsUnsafe);
+    safeties.insert("bbb-2.0.0".to_string(), Safety::UsesUnsafe(1));
+    safeties.insert("ccc-3.0.0".to_string(), Safety::NoUnsafe);
+
+    let output = format_tree(&tree, &safeties);
+
+    let expected = "\
+- root_crate \x1b[34m[0 unsafe]\x1b[0m
+  - aaa-1.0.0 \x1b[32m[safe]\x1b[0m
+    - bbb-2.0.0 \x1b[31m[1 unsafe]\x1b[0m
+      - ccc-3.0.0 \x1b[34m[0 unsafe]\x1b[0m
+  - bbb-2.0.0 \x1b[31m[1 unsafe]\x1b[0m
+";
+    assert_eq!(output, expected);
 }
