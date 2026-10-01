@@ -134,26 +134,31 @@ fn format_node<S: BuildHasher>(
     visited: &mut HashSet<String>,
     output: &mut String,
 ) {
-    let node = &tree.nodes[idx];
-    let id = &node.id;
-    let Some(safety) = safeties.get(id) else {
-        return;
-    };
+    let mut stack = vec![(idx, depth)];
 
-    let (label, color) = match safety {
-        Safety::ForbidsUnsafe => ("safe".to_string(), GREEN),
-        Safety::NoUnsafe => ("0 unsafe".to_string(), BLUE),
-        Safety::UsesUnsafe(count) => (format!("{count} unsafe"), RED),
-    };
+    while let Some((idx, depth)) = stack.pop() {
+        let node = &tree.nodes[idx];
+        let id = &node.id;
 
-    let indent = "  ".repeat(depth);
-    writeln!(output, "{indent}- {id} {color}[{label}]{RESET}").ok();
+        let Some(safety) = safeties.get(id) else {
+            continue;
+        };
 
-    if !visited.insert(id.clone()) {
-        return;
-    }
+        let (label, color) = match safety {
+            Safety::ForbidsUnsafe => ("safe".to_string(), GREEN),
+            Safety::NoUnsafe => ("0 unsafe".to_string(), BLUE),
+            Safety::UsesUnsafe(count) => (format!("{count} unsafe"), RED),
+        };
 
-    for &dep_idx in &node.dependencies {
-        format_node(tree, dep_idx, safeties, depth + 1, visited, output);
+        let indent = "  ".repeat(depth);
+        writeln!(output, "{indent}- {id} {color}[{label}]{RESET}").ok();
+
+        if !visited.insert(id.clone()) {
+            continue;
+        }
+
+        for &dep_idx in node.dependencies.iter().rev() {
+            stack.push((dep_idx, depth + 1));
+        }
     }
 }
