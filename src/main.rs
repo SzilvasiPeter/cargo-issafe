@@ -1,7 +1,6 @@
 //! Scans Rust project and its dependencies and reports their unsafe code usage.
 #![forbid(unsafe_code)]
 
-use std::collections::{HashMap, HashSet};
 use std::env::args;
 use std::fs;
 use std::path::PathBuf;
@@ -9,12 +8,7 @@ use std::process::Command;
 use std::{error::Error, path::Path};
 
 use cargo_issafe::scan::{Safety, dependency_safety};
-use cargo_issafe::tree::{DependencyTree, dependency_tree};
-
-const GREEN: &str = "\x1b[32m";
-const BLUE: &str = "\x1b[34m";
-const RED: &str = "\x1b[31m";
-const RESET: &str = "\x1b[0m";
+use cargo_issafe::tree::{dependency_tree, format_tree};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let target_dir = "target/cargo-issafe";
@@ -46,48 +40,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("missing `name` in [package] table")?
         .replace('-', "_");
     let tree = dependency_tree(&root_crate, &lockfile)?;
-    print_tree(&tree, &crate_safety);
+    print!("{}", format_tree(&tree, &crate_safety));
 
     if fail_on_unsafe && crate_safety.values().any(|krate| matches!(krate, Safety::UsesUnsafe(_))) {
         return Err("the crate or its dependencies use unsafe code".into());
     }
 
     Ok(())
-}
-
-fn print_tree(tree: &DependencyTree, safeties: &HashMap<String, Safety>) {
-    let mut visited = HashSet::new();
-    print_node(tree, tree.root, safeties, 0, &mut visited);
-}
-
-fn print_node(
-    tree: &DependencyTree,
-    idx: usize,
-    safeties: &HashMap<String, Safety>,
-    depth: usize,
-    visited: &mut HashSet<String>,
-) {
-    let node = &tree.nodes[idx];
-    let id = &node.id;
-    if !safeties.contains_key(id) {
-        return;
-    }
-
-    let (label, color) = match safeties.get(id) {
-        Some(Safety::ForbidsUnsafe) => ("safe".to_string(), GREEN),
-        Some(Safety::NoUnsafe) => ("0 unsafe".to_string(), BLUE),
-        Some(Safety::UsesUnsafe(count)) => (format!("{count} unsafe"), RED),
-        None => unreachable!(),
-    };
-
-    let indent = "  ".repeat(depth);
-    println!("{indent}- {id} [{color}{label}{RESET}]");
-
-    if !visited.insert(id.clone()) {
-        return;
-    }
-
-    for &dep_idx in &node.dependencies {
-        print_node(tree, dep_idx, safeties, depth + 1, visited);
-    }
 }

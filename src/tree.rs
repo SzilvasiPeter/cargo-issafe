@@ -1,6 +1,16 @@
 //! Returns the dependency tree using the Cargo.lock file.
 
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
+use std::hash::BuildHasher;
+
 use crate::error::TreeError;
+use crate::scan::Safety;
+
+const GREEN: &str = "\x1b[32m";
+const BLUE: &str = "\x1b[34m";
+const RED: &str = "\x1b[31m";
+const RESET: &str = "\x1b[0m";
 
 /// A single package node in the dependency tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,4 +109,51 @@ fn resolve_dep(dep: &str, packages: &[&str]) -> Result<usize, TreeError> {
                 && version.is_none_or(|wanted| get_value(package, "version = ") == Some(wanted))
         })
         .ok_or_else(|| TreeError::UnresolvedDependency(dep.to_string()))
+}
+
+/// Formats the dependency tree as a string with safety labels.
+///
+/// Each line represents a package with its safety classification, indented by depth.
+/// Already visited packages are not expanded again.
+#[must_use]
+pub fn format_tree<S: BuildHasher>(
+    tree: &DependencyTree,
+    safeties: &HashMap<String, Safety, S>,
+) -> String {
+    let mut visited = HashSet::new();
+    let mut output = String::new();
+    format_node(tree, tree.root, safeties, 0, &mut visited, &mut output);
+    output
+}
+
+fn format_node<S: BuildHasher>(
+    tree: &DependencyTree,
+    idx: usize,
+    safeties: &HashMap<String, Safety, S>,
+    depth: usize,
+    visited: &mut HashSet<String>,
+    output: &mut String,
+) {
+    let node = &tree.nodes[idx];
+    let id = &node.id;
+    let Some(safety) = safeties.get(id) else {
+        return;
+    };
+
+    let (label, color) = match safety {
+        Safety::ForbidsUnsafe => ("safe".to_string(), GREEN),
+        Safety::NoUnsafe => ("0 unsafe".to_string(), BLUE),
+        Safety::UsesUnsafe(count) => (format!("{count} unsafe"), RED),
+    };
+
+    let indent = "  ".repeat(depth);
+    writeln!(output, "{indent}- {id} {color}[{label}]{RESET}").ok();
+
+    if !visited.insert(id.clone()) {
+        return;
+    }
+
+    for &dep_idx in &node.dependencies {
+        format_node(tree, dep_idx, safeties, depth + 1, visited, output);
+    }
 }
