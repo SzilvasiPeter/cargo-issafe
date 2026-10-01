@@ -33,7 +33,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let crate_safety = dependency_safety(&deps)?;
     let lockfile = fs::read_to_string("Cargo.lock")?;
-    let root_crate = env!("CARGO_PKG_NAME").replace('-', "_");
+    let manifest = fs::read_to_string("Cargo.toml")?;
+    let root_crate = manifest
+        .split("[package]")
+        .nth(1)
+        .and_then(|pkg| {
+            pkg.lines()
+                .map(str::trim)
+                .find(|line| line.starts_with("name = "))
+                .and_then(|line| line.split('"').nth(1))
+        })
+        .ok_or("missing `name` in [package] table")?
+        .replace('-', "_");
     let tree = dependency_tree(&root_crate, &lockfile)?;
     print_tree(&tree, &crate_safety);
 

@@ -22,7 +22,7 @@ fn create_test_project(lib_rs: &str, cargo_toml: &str) -> PathBuf {
 fn happy_path_project_with_no_dependencies() {
     let project_dir = create_test_project(
         "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",
-        "[package]\nname = \"cargo-issafe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "[package]\nname = \"my-package\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
     );
 
     Command::cargo_bin("cargo-issafe").unwrap().current_dir(&project_dir).assert().success();
@@ -34,7 +34,7 @@ fn happy_path_project_with_no_dependencies() {
 fn succeeds_when_target_cargo_issafe_already_exists() {
     let project_dir = create_test_project(
         "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",
-        "[package]\nname = \"cargo-issafe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "[package]\nname = \"target-exist\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
     );
 
     let stale_dir = project_dir.join("target/cargo-issafe");
@@ -52,7 +52,7 @@ fn succeeds_when_target_cargo_issafe_already_exists() {
 fn fails_with_fail_on_unsafe_when_dependency_uses_unsafe() {
     let project_dir = create_test_project(
         "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",
-        "[package]\nname = \"cargo-issafe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nlibc = \"0.2\"\n",
+        "[package]\nname = \"uses-unsafe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nlibc = \"0.2\"\n",
     );
 
     Command::cargo_bin("cargo-issafe")
@@ -69,8 +69,8 @@ fn fails_with_fail_on_unsafe_when_dependency_uses_unsafe() {
 #[test]
 fn reports_safe_for_project_with_forbid_unsafe_and_serde_dependency() {
     let project_dir = create_test_project(
-        "#![forbid(unsafe_code)]\npub fn add(a: u32, b: u32) -> u32 { a + b }\n",
-        "[package]\nname = \"cargo-issafe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nserde = \"1\"\n",
+        "#![forbid(unsafe_code)]\npub fn value() -> u32 { 0 }\n",
+        "[package]\nname = \"safe-project\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nserde = \"1\"\n",
     );
 
     Command::cargo_bin("cargo-issafe")
