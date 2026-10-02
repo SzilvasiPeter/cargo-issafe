@@ -34,6 +34,8 @@ Run it from your crate:
 cargo issafe
 ```
 
+If you want to fail when unsafe code is present, then use the `--fail-on-unsafe` argument.
+
 The output shows how many times the `unsafe` keyword appears in each dependency:
 
 ```
