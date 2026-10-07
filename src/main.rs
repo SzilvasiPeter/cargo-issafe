@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::{error::Error, path::Path};
 
+use cargo_issafe::manifest::package_name;
 use cargo_issafe::scan::{Safety, dependency_safety};
 use cargo_issafe::tree::{dependency_tree, format_tree};
 
@@ -28,18 +29,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let crate_safety = dependency_safety(&deps)?;
     let lockfile = fs::read_to_string("Cargo.lock").map_err(|err| format!("Cargo.lock: {err}"))?;
     let manifest = fs::read_to_string("Cargo.toml").map_err(|err| format!("Cargo.toml: {err}"))?;
-    let root_crate = manifest
-        .split("[package]")
-        .nth(1)
-        .and_then(|pkg| {
-            pkg.lines()
-                .map(str::trim)
-                .find(|line| line.starts_with("name = "))
-                .and_then(|line| line.split('"').nth(1))
-        })
-        .ok_or("missing `name` in [package] table")?
-        .replace('-', "_");
-    let tree = dependency_tree(&root_crate, &lockfile)?;
+    let root_crate = package_name(&manifest).ok_or("missing `name` in [package] table")?;
+    let normalized_root = root_crate.replace('-', "_");
+    let tree = dependency_tree(&normalized_root, &lockfile)?;
     print!("{}", format_tree(&tree, &crate_safety));
 
     if fail_on_unsafe && crate_safety.values().any(|krate| matches!(krate, Safety::UsesUnsafe(_))) {

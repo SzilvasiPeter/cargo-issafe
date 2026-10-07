@@ -14,5 +14,6 @@
 #![forbid(unsafe_code)]
 #![warn(clippy::print_stdout, clippy::print_stderr)]
 pub mod error;
+pub mod manifest;
 pub mod scan;
 pub mod tree;
