@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Remove the previous compilation if exists, so the .d files reflect the current dependency graph.
     if Path::new(target_dir).is_dir() {
-        fs::remove_dir_all(target_dir)?;
+        fs::remove_dir_all(target_dir).map_err(|err| format!("{target_dir}: {err}"))?;
     }
 
     let check = Command::new("cargo").args(["check", "-q", "--target-dir", target_dir]).status()?;
@@ -26,8 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let crate_safety = dependency_safety(&deps)?;
-    let lockfile = fs::read_to_string("Cargo.lock")?;
-    let manifest = fs::read_to_string("Cargo.toml")?;
+    let lockfile = fs::read_to_string("Cargo.lock").map_err(|err| format!("Cargo.lock: {err}"))?;
+    let manifest = fs::read_to_string("Cargo.toml").map_err(|err| format!("Cargo.toml: {err}"))?;
     let root_crate = manifest
         .split("[package]")
         .nth(1)
