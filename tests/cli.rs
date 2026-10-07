@@ -83,6 +83,39 @@ fn fails_with_cargo_check_failed_when_project_does_not_compile() {
     fs::remove_dir_all(&project_dir).ok();
 }
 
+// TODO: enable this test after workspace support is added
+// #[test]
+// fn supports_cargo_workspace() {
+//     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+//     let workspace_dir =
+//         env::temp_dir().join(format!("cargo-issafe-cli-workspace-test-{timestamp}"));
+//     fs::create_dir_all(workspace_dir.join("member/src")).unwrap();
+//     fs::write(
+//         workspace_dir.join("Cargo.toml"),
+//         "[workspace]\nresolver = \"2\"\nmembers = [\"member\"]\n",
+//     )
+//     .unwrap();
+//     fs::write(
+//         workspace_dir.join("member/Cargo.toml"),
+//         "[package]\nname = \"ws-member\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+//     )
+//     .unwrap();
+//     fs::write(
+//         workspace_dir.join("member/src/lib.rs"),
+//         "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",
+//     )
+//     .unwrap();
+//
+//     Command::cargo_bin("cargo-issafe")
+//         .unwrap()
+//         .current_dir(&workspace_dir)
+//         .assert()
+//         .success()
+//         .stdout(contains("ws_member"));
+//
+//     fs::remove_dir_all(&workspace_dir).ok();
+// }
+
 #[test]
 fn reports_safe_for_project_with_forbid_unsafe_and_serde_dependency() {
     let project_dir = create_test_project(
@@ -96,6 +129,40 @@ fn reports_safe_for_project_with_forbid_unsafe_and_serde_dependency() {
         .assert()
         .success()
         .stdout(contains("serde"));
+
+    fs::remove_dir_all(&project_dir).ok();
+}
+
+#[test]
+fn prints_path_dependency_under_root_crate() {
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let project_dir = env::temp_dir().join(format!("cargo-issafe-cli-path-dep-test-{timestamp}"));
+    fs::create_dir_all(project_dir.join("src")).unwrap();
+    fs::create_dir_all(project_dir.join("helpers/src")).unwrap();
+    fs::write(
+        project_dir.join("Cargo.toml"),
+        "[package]\nname = \"path-dep-root\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\npath-helpers = { path = \"helpers\" }\n",
+    )
+    .unwrap();
+    fs::write(project_dir.join("src/lib.rs"), "pub fn add() -> u32 { path_helpers::helper() }\n")
+        .unwrap();
+    fs::write(
+        project_dir.join("helpers/Cargo.toml"),
+        "[package]\nname = \"path-helpers\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    fs::write(
+        project_dir.join("helpers/src/lib.rs"),
+        "#![forbid(unsafe_code)]\npub fn helper() -> u32 { 1 }\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(&project_dir)
+        .assert()
+        .success()
+        .stdout(contains("path_helpers-0.1.0"));
 
     fs::remove_dir_all(&project_dir).ok();
 }

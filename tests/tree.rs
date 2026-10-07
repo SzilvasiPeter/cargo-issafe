@@ -294,3 +294,60 @@ fn format_tree_collapses_repeated_dependencies() {
 ";
     assert_eq!(output, expected);
 }
+
+#[test]
+fn format_tree_falls_back_to_versionless_safety_key() {
+    let input = r#"
+        [[package]]
+        name = "root-crate"
+        version = "0.1.0"
+        dependencies = [
+         "path-dep",
+        ]
+
+        [[package]]
+        name = "path-dep"
+        version = "0.1.0"
+        "#;
+
+    let tree = dependency_tree("root_crate", input).unwrap();
+
+    // Local crates have no version in the safety map, see `extract_version`.
+    let mut safeties = HashMap::new();
+    safeties.insert("root_crate".to_string(), Safety::NoUnsafe);
+    safeties.insert("path_dep".to_string(), Safety::ForbidsUnsafe);
+
+    let output = format_tree(&tree, &safeties);
+
+    let expected = "\
+- root_crate \x1b[34m[0 unsafe]\x1b[0m
+  - path_dep-0.1.0 \x1b[32m[safe]\x1b[0m
+";
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn format_tree_skips_package_without_safety_entry() {
+    let input = r#"
+        [[package]]
+        name = "root-crate"
+        version = "0.1.0"
+        dependencies = [
+         "path-dep",
+        ]
+
+        [[package]]
+        name = "path-dep"
+        version = "0.1.0"
+        "#;
+
+    let tree = dependency_tree("root_crate", input).unwrap();
+
+    let mut safeties = HashMap::new();
+    safeties.insert("root_crate".to_string(), Safety::NoUnsafe);
+
+    let output = format_tree(&tree, &safeties);
+
+    let expected = "- root_crate \x1b[34m[0 unsafe]\x1b[0m\n";
+    assert_eq!(output, expected);
+}

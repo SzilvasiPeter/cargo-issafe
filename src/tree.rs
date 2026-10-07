@@ -126,7 +126,11 @@ pub fn format_tree<S: BuildHasher>(tree: &DependencyTree, safety_map: &SafetyMap
     while let Some((idx, depth)) = stack.pop() {
         let node = &tree.nodes[idx];
         let id = &node.id;
-        let Some(safety) = safety_map.get(id) else {
+        let Some(safety) = safety_map
+            .get(id)
+            // Safety map stores local crates without version while package ID keeps the version
+            .or_else(|| safety_map.get(id.split_once('-').map_or(id.as_str(), |(name, _)| name)))
+        else {
             continue;
         };
 

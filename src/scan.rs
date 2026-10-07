@@ -73,12 +73,16 @@ pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, Sca
 
 /// Extract the crate version from a dependency (.d) file's content.
 ///
-/// Example: the `0.2.6` version from `.cargo/registry/src/.../unicode-xid-0.2.6/src/lib.rs:` line.
+/// External registry dependencies always has version number, e.g.
+/// the `0.2.6` version from `.cargo/registry/src/.../unicode-xid-0.2.6/src/lib.rs:` line.
+/// On the other hand, local crates don't contain version information, e.g.
+/// `src/main.rs:` or `my-helper/src/lib.rs:` lines.
 fn extract_version(dep_info: &str) -> Option<&str> {
     dep_info.lines().find(|line| line.contains(".rs:")).and_then(|line| {
         let src_pos = line.rfind("/src")?;
         let dash_pos = line[..src_pos].rfind('-')?;
-        Some(&line[dash_pos + 1..src_pos])
+        let version = &line[dash_pos + 1..src_pos];
+        version.as_bytes().first().is_some_and(u8::is_ascii_digit).then_some(version)
     })
 }
 
@@ -209,6 +213,17 @@ mod tests {
             ";
 
         assert_eq!(extract_version(dep_info), Some("0.2.6"));
+    }
+
+    #[test]
+    fn ignores_directory_name_as_version() {
+        let dep_info = "
+            target/debug/deps/my_helpers-3b54bc15001c55ad.d: my-helpers/src/lib.rs
+
+            my-helpers/src/lib.rs:
+            ";
+
+        assert_eq!(extract_version(dep_info), None);
     }
 
     #[test]
