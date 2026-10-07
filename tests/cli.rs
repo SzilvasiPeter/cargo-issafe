@@ -67,6 +67,23 @@ fn fails_with_fail_on_unsafe_when_dependency_uses_unsafe() {
 }
 
 #[test]
+fn fails_with_cargo_check_failed_when_project_does_not_compile() {
+    let project_dir = create_test_project(
+        "pub fn add(a: u32, b: u32) -> u32 { a + }\n",
+        "[package]\nname = \"broken-project\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    );
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(&project_dir)
+        .assert()
+        .failure()
+        .stderr(contains("cargo check failed"));
+
+    fs::remove_dir_all(&project_dir).ok();
+}
+
+#[test]
 fn reports_safe_for_project_with_forbid_unsafe_and_serde_dependency() {
     let project_dir = create_test_project(
         "#![forbid(unsafe_code)]\npub fn value() -> u32 { 0 }\n",
