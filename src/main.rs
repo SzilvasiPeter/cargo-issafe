@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         fs::remove_dir_all(target_dir).map_err(|err| format!("{target_dir}: {err}"))?;
     }
 
-    let check = Command::new("cargo").args(["check", "-q", "--target-dir", target_dir]).status()?;
+    let check = Command::new("cargo").args(["check", "--target-dir", target_dir]).status()?;
     if !check.success() {
         return Err("cargo check failed".into());
     }
