@@ -31,24 +31,6 @@ fn happy_path_project_with_no_dependencies() {
 }
 
 #[test]
-fn succeeds_when_target_cargo_issafe_already_exists() {
-    let project_dir = create_test_project(
-        "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",
-        "[package]\nname = \"target-exist\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
-    );
-
-    let stale_dir = project_dir.join("target/cargo-issafe");
-    fs::create_dir_all(&stale_dir).unwrap();
-    fs::write(stale_dir.join("stale_file"), "stale").unwrap();
-
-    Command::cargo_bin("cargo-issafe").unwrap().current_dir(&project_dir).assert().success();
-
-    assert!(!stale_dir.join("stale_file").exists());
-
-    fs::remove_dir_all(&project_dir).ok();
-}
-
-#[test]
 fn fails_with_fail_on_unsafe_when_dependency_uses_unsafe() {
     let project_dir = create_test_project(
         "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",

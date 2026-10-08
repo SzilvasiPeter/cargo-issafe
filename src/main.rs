@@ -2,31 +2,25 @@
 #![forbid(unsafe_code)]
 
 use std::env::args;
+use std::error::Error;
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
-use std::{error::Error, path::Path};
 
 use cargo_issafe::manifest::package_name;
-use cargo_issafe::scan::{Safety, dependency_safety};
+use cargo_issafe::scan::{Safety, compiled_dep_files, dependency_safety};
 use cargo_issafe::tree::{dependency_tree, format_tree};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let target_dir = "target/cargo-issafe";
-    let deps = PathBuf::from(target_dir).join("debug/deps");
     let fail_on_unsafe = args().any(|arg| arg == "--fail-on-unsafe");
 
-    // Remove the previous compilation if exists, so the .d files reflect the current dependency graph.
-    if Path::new(target_dir).is_dir() {
-        fs::remove_dir_all(target_dir).map_err(|err| format!("{target_dir}: {err}"))?;
-    }
-
-    let check = Command::new("cargo").args(["check", "--target-dir", target_dir]).status()?;
-    if !check.success() {
+    let check = Command::new("cargo").args(["check", "--message-format=json"]).output()?;
+    if !check.status.success() {
         return Err("cargo check failed".into());
     }
+    let stdout = String::from_utf8_lossy(&check.stdout);
+    let dep_files = compiled_dep_files(&stdout);
 
-    let crate_safety = dependency_safety(&deps)?;
+    let crate_safety = dependency_safety(&dep_files)?;
     let lockfile = fs::read_to_string("Cargo.lock").map_err(|err| format!("Cargo.lock: {err}"))?;
     let manifest = fs::read_to_string("Cargo.toml").map_err(|err| format!("Cargo.toml: {err}"))?;
     let root_crate = package_name(&manifest).ok_or("missing `name` in [package] table")?;

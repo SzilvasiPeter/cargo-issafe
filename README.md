@@ -49,9 +49,7 @@ The output shows how many times the `unsafe` keyword appears in each dependency:
 
 ## How does it work under the hood?
 
-The tool walks your dependency tree, counts unsafe ident, and presents the findings. There is no macro parsing or deep cargo integration involved.
-
-Dependency resolution relies on `cargo check`, which is quicker than a full build. Once resolved, the relevant crate sources are pulled from the local cargo registry and scanned for unsafe usage.
+The tool runs `cargo check --message-format=json` and scans only the `.d` files listed as compiler artifacts, so removed dependencies and changed features leave no stale results. It then counts the `unsafe` keyword in each crate's sources and presents the findings.
 
 ## Contributing
 

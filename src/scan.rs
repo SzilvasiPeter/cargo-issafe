@@ -19,25 +19,16 @@ pub enum Safety {
     UsesUnsafe(usize),
 }
 
-/// Scan dependency `.d` files under `deps_dir` for `unsafe` usage.
+/// Scan the given dependency (`.d`) files for `unsafe` usage.
 ///
 /// Returns a map from crate name with version to its safety classification.
-/// Classifications are merged when multiple `.d` files share the same crate name,
-/// e.g. when a project has both a library and a binary crate with the same name.
-///
-/// # Arguments
-/// * `deps_dir` - Path to the directory containing dependency `.d` files to scan.
 ///
 /// # Errors
-/// Returns [`ScanError::Io`] if a dependency file or source file can't be read,
-/// or [`ScanError::MissingEntryPoint`] if no `.rs` entry point is found.
-pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, ScanError> {
+/// Returns [`ScanError::Io`] if a file can't be read,
+/// or [`ScanError::MissingEntryPoint`] if a `.d` file lists no `.rs` source.
+pub fn dependency_safety(paths: &[PathBuf]) -> Result<HashMap<String, Safety>, ScanError> {
     let mut results = HashMap::new();
-    for path in fs::read_dir(deps_dir)?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "d"))
-    {
+    for path in paths {
         // Crate name is the part before the first dash, e.g. rustc_lexer-bfc1ea28fe193e21.d
         let crate_name = path
             .file_stem()
@@ -47,7 +38,7 @@ pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, Sca
             .to_string();
 
         // Gather all source code files from the dependency (.d) file.
-        let dep_info = fs::read_to_string(&path)?;
+        let dep_info = fs::read_to_string(path)?;
         let sources: Vec<PathBuf> = dep_info
             .lines()
             .map(str::trim)
@@ -69,6 +60,41 @@ pub fn dependency_safety(deps_dir: &Path) -> Result<HashMap<String, Safety>, Sca
     }
 
     Ok(results)
+}
+
+/// Collect the active `.d` files from `cargo check --message-format=json` output.
+#[must_use]
+pub fn compiled_dep_files(check_output: &str) -> Vec<PathBuf> {
+    check_output
+        .lines()
+        .filter(|line| line.contains("\"reason\":\"compiler-artifact\""))
+        .filter_map(artifact_dep_file)
+        .collect()
+}
+
+/// Extract the `.d` file from one `compiler-artifact` JSON line.
+fn artifact_dep_file(line: &str) -> Option<PathBuf> {
+    let rest = line.split("\"filenames\":[").nth(1)?;
+    let array = rest.split(']').next()?;
+    array.split('"').find_map(|entry| dep_file_from_artifact(Path::new(entry)))
+}
+
+/// Map a compiler artifact to its `.d` file.
+///
+/// E.g. `target/debug/deps/libserde-57b4d06e20d44d22.rmeta` maps to
+/// `target/debug/deps/serde-57b4d06e20d44d22.d`.
+#[must_use]
+fn dep_file_from_artifact(artifact: &Path) -> Option<PathBuf> {
+    if !matches!(artifact.extension()?.to_str()?, "rmeta" | "so") {
+        return None;
+    }
+    let parent = artifact.parent()?;
+    if parent.file_name()?.to_str()? != "deps" {
+        return None;
+    }
+    let stem = artifact.file_stem()?.to_str()?;
+    let stripped = stem.strip_prefix("lib").unwrap_or(stem);
+    Some(parent.join(format!("{stripped}.d")))
 }
 
 /// Extract the crate version from a dependency (.d) file's content.
@@ -154,7 +180,11 @@ const fn merge_safety(existing: Safety, recent: Safety) -> Safety {
 
 #[cfg(test)]
 mod tests {
-    use super::{Safety as SFT, count_unsafe, extract_version, merge_safety, strip_comments};
+    use super::{
+        Safety as SFT, compiled_dep_files, count_unsafe, extract_version, merge_safety,
+        strip_comments,
+    };
+    use std::path::PathBuf;
 
     #[test]
     fn removes_all_comment_styles() {
@@ -249,5 +279,25 @@ mod tests {
     fn merge_safety_equal_variants_merge_into_themselves() {
         assert_eq!(merge_safety(SFT::NoUnsafe, SFT::NoUnsafe), SFT::NoUnsafe);
         assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::ForbidsUnsafe), SFT::ForbidsUnsafe);
+    }
+
+    #[test]
+    fn compiled_dep_files_from_check_output() {
+        let output = r#"{"reason":"compiler-artifact","filenames":["target/debug/deps/libserde-aaa.rmeta"]}
+            {"reason":"compiler-artifact","filenames":["target/debug/deps/libmy_bin-bbb.rmeta"]}
+            {"reason":"compiler-artifact","filenames":["target/debug/deps/libserde_derive-ccc.so"]}
+            {"reason":"compiler-artifact","filenames":["target/debug/deps/libsyn-ddd.rlib","target/debug/deps/libsyn-ddd.rmeta"]}
+            {"reason":"compiler-artifact","filenames":["target/debug/build/serde-eee/build-script-build"]}
+            {"reason":"build-finished","success":true}
+            not json"#;
+        assert_eq!(
+            compiled_dep_files(output),
+            vec![
+                PathBuf::from("target/debug/deps/serde-aaa.d"),
+                PathBuf::from("target/debug/deps/my_bin-bbb.d"),
+                PathBuf::from("target/debug/deps/serde_derive-ccc.d"),
+                PathBuf::from("target/debug/deps/syn-ddd.d"),
+            ]
+        );
     }
 }
