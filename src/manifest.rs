@@ -3,7 +3,7 @@
 /// Returns the crate name from the `[package]` table section.
 ///
 /// Returns [`None`] if the manifest has no `[package]` table, e.g.
-/// if it is a workspace root, or the package missing the `name` field.
+/// if it is a virtual manifest, or the package missing the `name` field.
 #[must_use]
 pub fn package_name(manifest: &str) -> Option<&str> {
     manifest.split_once("[package]")?.1.lines().find_map(|line| {
