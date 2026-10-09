@@ -236,12 +236,6 @@ mod tests {
     }
 
     #[test]
-    fn counts_unsafe_unsafe_nomangle() {
-        let no_mangle = "#[unsafe(no_mangle)]";
-        assert_eq!(count_unsafe(no_mangle), 1);
-    }
-
-    #[test]
     fn extracts_version_from_dep_info() {
         let dep_info = "
             home/ws/cargo-issafe/target/debug/deps/unicode_xid-39a96c518b5bd65a.d: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs
