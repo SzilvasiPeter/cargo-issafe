@@ -76,6 +76,7 @@ pub fn compiled_dep_files(check_output: &str) -> Vec<PathBuf> {
 fn artifact_dep_file(line: &str) -> Option<PathBuf> {
     let rest = line.split("\"filenames\":[").nth(1)?;
     let array = rest.split(']').next()?;
+    // todo: should split by , and trim " matches
     array.split('"').find_map(|entry| dep_file_from_artifact(Path::new(entry)))
 }
 
