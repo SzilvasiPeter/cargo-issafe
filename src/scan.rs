@@ -195,42 +195,33 @@ mod tests {
     }
 
     #[test]
-    fn comment_inside_attribute_is_still_matched() {
-        let source = "#![/* unsafe */forbid(unsafe_code)]";
-        assert_eq!(strip_comments(source), "#![forbid(unsafe_code)]");
-        assert_eq!(count_unsafe(source), 0);
-    }
+    fn ignores_comments_in_code() {
+        let attribute = "#![/* unsafe */forbid(unsafe_code)]";
+        assert_eq!(strip_comments(attribute), "#![forbid(unsafe_code)]");
+        assert_eq!(count_unsafe(attribute), 0);
 
-    #[test]
-    fn ignores_comment_markers_in_strings_and_char_literals() {
-        let source = "let url = \"http://example.com\"; let c = '/';";
-        assert_eq!(strip_comments(source), source);
-    }
+        let string = "let url = \"http://example.com\";";
+        let char = "let c = '/';";
+        assert_eq!(strip_comments(string), string);
+        assert_eq!(strip_comments(char), char);
 
-    #[test]
-    fn ignores_raw_identifier() {
         let raw_ident = "let r#unsafe = 10;";
         assert_eq!(count_unsafe(raw_ident), 0);
     }
 
     #[test]
-    fn counts_only_unsafe_ident() {
-        assert_eq!(count_unsafe("unsafe fn f() { unsafe {} }\n// unsafe\nunsafe_ident"), 2);
-    }
+    fn counts_only_unsafe_keyword() {
+        let unsafe_in_unsafe_fn = "unsafe fn f() { unsafe {} }\n// unsafe\nunsafe_ident";
+        assert_eq!(count_unsafe(unsafe_in_unsafe_fn), 2);
 
-    #[test]
-    fn counts_unsafe_in_macro() {
-        let macro_rule = "macro_rules! read_raw_ptr {
+        let unsafe_macro = "macro_rules! read_raw_ptr {
             ($ptr:expr) => {
-                // The macro emits an unsafe block directly
+                // unsafe { *$ptr } comment here
                 unsafe { *$ptr }
             };
         }";
-        assert_eq!(count_unsafe(macro_rule), 1);
-    }
+        assert_eq!(count_unsafe(unsafe_macro), 1);
 
-    #[test]
-    fn counts_unsafe_unsafe_nomangle() {
         let no_mangle = "#[unsafe(no_mangle)]";
         assert_eq!(count_unsafe(no_mangle), 1);
     }
@@ -238,16 +229,11 @@ mod tests {
     #[test]
     fn extracts_version_from_dep_info() {
         let dep_info = "
-            home/ws/cargo-issafe/target/debug/deps/unicode_xid-39a96c518b5bd65a.d: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs
-
-            home/ws/cargo-issafe/target/debug/deps/libunicode_xid-39a96c518b5bd65a.rlib: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs
-
-            home/ws/cargo-issafe/target/debug/deps/libunicode_xid-39a96c518b5bd65a.rmeta: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs
-
-            home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs:
-            home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs:
-            ";
-
+            home/ws/cargo-issafe/target/debug/deps/unicode_xid-39a96c518b5bd65a.d: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs\n\n
+            home/ws/cargo-issafe/target/debug/deps/libunicode_xid-39a96c518b5bd65a.rlib: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs\n\n
+            home/ws/cargo-issafe/target/debug/deps/libunicode_xid-39a96c518b5bd65a.rmeta: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs\n\n
+            home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs:\n
+            home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs:\n";
         assert_eq!(extract_version(dep_info), Some("0.2.6"));
     }
 
@@ -258,33 +244,25 @@ mod tests {
 
             my-helpers/src/lib.rs:
             ";
-
         assert_eq!(extract_version(dep_info), None);
     }
 
     #[test]
-    fn merge_safety_adds_unsafe_counts() {
+    fn merge_safety_classification() {
+        // Merging same safety classes
         assert_eq!(merge_safety(SFT::UsesUnsafe(1), SFT::UsesUnsafe(2)), SFT::UsesUnsafe(3));
-    }
+        assert_eq!(merge_safety(SFT::NoUnsafe, SFT::NoUnsafe), SFT::NoUnsafe);
+        assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::ForbidsUnsafe), SFT::ForbidsUnsafe);
 
-    #[test]
-    fn merge_safety_unsafe_dominates() {
+        // Unsafe usage dominates forbid or no unsafe usage.
         assert_eq!(merge_safety(SFT::UsesUnsafe(1), SFT::NoUnsafe), SFT::UsesUnsafe(1));
         assert_eq!(merge_safety(SFT::NoUnsafe, SFT::UsesUnsafe(1)), SFT::UsesUnsafe(1));
         assert_eq!(merge_safety(SFT::UsesUnsafe(1), SFT::ForbidsUnsafe), SFT::UsesUnsafe(1));
         assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::UsesUnsafe(1)), SFT::UsesUnsafe(1));
-    }
 
-    #[test]
-    fn merge_safety_no_unsafe_dominates_forbids() {
+        // No unsafe usage dominates forbid unsafe.
         assert_eq!(merge_safety(SFT::NoUnsafe, SFT::ForbidsUnsafe), SFT::NoUnsafe);
         assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::NoUnsafe), SFT::NoUnsafe);
-    }
-
-    #[test]
-    fn merge_safety_equal_variants_merge_into_themselves() {
-        assert_eq!(merge_safety(SFT::NoUnsafe, SFT::NoUnsafe), SFT::NoUnsafe);
-        assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::ForbidsUnsafe), SFT::ForbidsUnsafe);
     }
 
     #[test]
