@@ -11,12 +11,10 @@ A lightweight Rust CLI that detects unsafe keyword usage in crates and their dep
 
 ## Why does this exist?
 
-[Cargo Geiger](https://github.com/geiger-rs/cargo-geiger) gets the job done, but it carries a lot of bloat and waiting on maintainer reviews takes a while. It also surfaces far more detail than most people need, which increases its complexity.
-
-cargo-issafe takes a different approach. It is based on a few principles:
+I like the idea of making safe and reliable code, and encountered the [Cargo Geiger](https://github.com/geiger-rs/cargo-geiger) tool to scan unsafe code. I have also realized that most of the crates (including cargo-geiger or even the Rust's standard library) have unsafe code or unsafe dependencies. Although unsafe code is required in performance critical or bridging (FFI) cases, it does not justify its uses in some cases. My plan was to strip down unsafe scanning into its minimal core so that the codebase and dependencies are safe:
 
 - No unsafe code
-- No external dependencies [^1]
+- No unsafe dependencies [^1]
 - Small binary (under 500 KiB)
 - Covered by thorough tests
 
