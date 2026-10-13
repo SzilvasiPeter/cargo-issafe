@@ -8,7 +8,7 @@
 pub fn package_name(manifest: &str) -> Option<&str> {
     manifest.split_once("[package]")?.1.lines().find_map(|line| {
         let (field, value) = line.split_once('=')?;
-        (field.trim() == "name").then(|| value.trim().trim_matches('"'))
+        (field.trim() == "name").then(|| value.trim().trim_matches(['"', '\'']))
     })
 }
 
@@ -34,6 +34,12 @@ mod tests {
         for case in cases {
             assert_eq!(package_name(case), Some("value"));
         }
+    }
+
+    #[test]
+    fn extract_package_name_with_single_quotes() {
+        assert_eq!(package_name("[package]\nname = 'value'"), Some("value"));
+        assert_eq!(package_name("[package]\nname='cargo-issafe'"), Some("cargo-issafe"));
     }
 
     #[test]
