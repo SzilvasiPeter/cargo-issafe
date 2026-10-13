@@ -91,10 +91,8 @@ fn artifact_dep_file(line: &str) -> Option<PathBuf> {
 /// `target/debug/deps/serde-57b4d06e20d44d22.d`.
 #[must_use]
 fn dep_file_from_artifact(artifact: &Path) -> Option<PathBuf> {
-    // TODO: check the windows (.dll) and macos (dylib) in real build,
-    // do i really need to add | "dylib" | "dll"?
-    // https://rustc-dev-guide.rust-lang.org/backend/libs-and-metadata.html#rmeta
-    if !matches!(artifact.extension()?.to_str()?, "rmeta" | "so") {
+    // Loadable libraries: `.so` on Linux, `.dylib` on macOS, and `.dll` on Windows.
+    if !matches!(artifact.extension()?.to_str()?, "rmeta" | "so" | "dylib" | "dll") {
         return None;
     }
     let parent = artifact.parent()?;
@@ -208,10 +206,10 @@ const fn merge_safety(existing: Safety, recent: Safety) -> Safety {
 #[cfg(test)]
 mod tests {
     use super::{
-        Safety as SFT, compiled_dep_files, count_unsafe, extract_version, forbids_unsafe,
-        merge_safety,
+        Safety as SFT, compiled_dep_files, count_unsafe, dep_file_from_artifact, extract_version,
+        forbids_unsafe, merge_safety,
     };
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn detects_forbid_unsafe_attribute() {
@@ -298,6 +296,21 @@ mod tests {
         // No unsafe usage dominates forbid unsafe.
         assert_eq!(merge_safety(SFT::NoUnsafe, SFT::ForbidsUnsafe), SFT::NoUnsafe);
         assert_eq!(merge_safety(SFT::ForbidsUnsafe, SFT::NoUnsafe), SFT::NoUnsafe);
+    }
+
+    #[test]
+    fn maps_proc_macro_artifacts_to_dep_files() {
+        for artifact in [
+            "target/debug/deps/libserde_derive-aaa.so",
+            "target/debug/deps/libserde_derive-aaa.dylib",
+            "target/debug/deps/serde_derive-aaa.dll",
+        ] {
+            assert_eq!(
+                dep_file_from_artifact(Path::new(artifact)),
+                Some(PathBuf::from("target/debug/deps/serde_derive-aaa.d")),
+                "unmapped artifact: {artifact}",
+            );
+        }
     }
 
     #[test]
