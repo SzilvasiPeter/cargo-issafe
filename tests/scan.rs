@@ -192,3 +192,27 @@ fn reports_versioned_crate_name_from_registry_path() {
     let cleanup_result = fs::remove_dir_all(&deps);
     assert!(cleanup_result.is_ok());
 }
+
+// Windows dep-info paths use drive-letter colons and backslashes (e.g. `D:\...\example-0.2.177\src\lib.rs:`).
+// Only lines ending with `:` are sources, so the drive colon is never treated as a separator.
+#[test]
+fn reports_versioned_crate_name_from_windows_path() {
+    let deps = create_test_dir();
+    let dep_path = write_dependency(
+        &deps,
+        "example-123.d",
+        &[(
+            r"D:\cargo\registry\src\index\example-0.2.177\src\lib.rs",
+            "pub fn value() -> usize { 0 }\n",
+        )],
+    );
+
+    let safety_result = dependency_safety(&[dep_path]);
+    assert!(safety_result.is_ok());
+    if let Ok(safety) = safety_result {
+        assert_eq!(safety, HashMap::from([("example-0.2.177".to_string(), Safety::NoUnsafe)]));
+    }
+
+    let cleanup_result = fs::remove_dir_all(&deps);
+    assert!(cleanup_result.is_ok());
+}

@@ -40,11 +40,12 @@ pub fn dependency_safety(paths: &[PathBuf]) -> Result<HashMap<String, Safety>, S
             .to_string();
 
         // Gather all source code files from the dependency (.d) file.
+        // Only trailer lines (e.g. `src/lib.rs:`) hold source paths.
         let dep_info = fs::read_to_string(path)?;
         let sources: Vec<PathBuf> = dep_info
             .lines()
             .map(str::trim)
-            .filter_map(|line| line.split_once(':').map(|(registry_path, _)| registry_path.trim()))
+            .filter_map(|line| line.strip_suffix(':'))
             .map(PathBuf::from)
             .filter(|source| source.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs")))
             .collect();
@@ -113,8 +114,8 @@ fn dep_file_from_artifact(artifact: &Path) -> Option<PathBuf> {
 /// `src/main.rs:` or `my-helper/src/lib.rs:` lines.
 fn extract_version(dep_info: &str) -> Option<&str> {
     dep_info.lines().find(|line| line.contains(".rs:")).and_then(|line| {
-        let src_pos = line.rfind("/src")?;
-        let segment = line[..src_pos].rsplit('/').next()?;
+        let src_pos = line.rfind("/src").or_else(|| line.rfind("\\src"))?;
+        let segment = line[..src_pos].rsplit(['/', '\\']).next()?;
         segment.match_indices('-').find_map(|(dash, _)| {
             let version = &segment[dash + 1..];
             version.as_bytes().first().is_some_and(u8::is_ascii_digit).then_some(version)
@@ -229,6 +230,12 @@ mod tests {
         ] {
             assert!(!forbids_unsafe(source), "false positive: {source}");
         }
+    }
+
+    #[test]
+    fn extracts_version_from_backslash_path() {
+        let dep_info = "D:\\cargo\\registry\\src\\index\\libc-0.2.177\\src\\lib.rs:\n";
+        assert_eq!(extract_version(dep_info), Some("0.2.177"));
     }
 
     #[test]
