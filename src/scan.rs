@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use rustc_lexer::TokenKind;
+
 use crate::error::ScanError;
 
 /// The crate's `unsafe` code policy and usage.
@@ -74,6 +76,7 @@ pub fn compiled_dep_files(check_output: &str) -> Vec<PathBuf> {
 
 /// Extract the `.d` file from one `compiler-artifact` JSON line.
 fn artifact_dep_file(line: &str) -> Option<PathBuf> {
+    // TODO: make it white-space and new-line tolerant
     let rest = line.split("\"filenames\":[").nth(1)?;
     let array = rest.split(']').next()?;
     // todo: should split by , and trim " matches
@@ -86,6 +89,9 @@ fn artifact_dep_file(line: &str) -> Option<PathBuf> {
 /// `target/debug/deps/serde-57b4d06e20d44d22.d`.
 #[must_use]
 fn dep_file_from_artifact(artifact: &Path) -> Option<PathBuf> {
+    // TODO: check the windows (.dll) and macos (dylib) in real build,
+    // do i really need to add | "dylib" | "dll"?
+    // https://rustc-dev-guide.rust-lang.org/backend/libs-and-metadata.html#rmeta
     if !matches!(artifact.extension()?.to_str()?, "rmeta" | "so") {
         return None;
     }
@@ -121,7 +127,7 @@ fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, ScanError> {
     }
 
     let entry_content = fs::read_to_string(&sources[0])?;
-    if strip_comments(&entry_content).contains("#![forbid(unsafe_code)]") {
+    if forbids_unsafe(&entry_content) {
         return Ok(Safety::ForbidsUnsafe);
     }
 
@@ -133,22 +139,38 @@ fn crate_safety_profile(sources: &[PathBuf]) -> Result<Safety, ScanError> {
     Ok(if count == 0 { Safety::NoUnsafe } else { Safety::UsesUnsafe(count) })
 }
 
-/// Strip comments from the source code file's content.
-fn strip_comments(source: &str) -> String {
-    let mut stripped = String::with_capacity(source.len());
+/// Checks for the crate-level `#![forbid(unsafe_code)]` attribute.
+///
+/// Whitelist matcher: only the `#`, `!`, `[`, `forbid`, `(`, `unsafe_code`, `)`, `]`
+/// token sequence counts. Whitespace and comments between tokens are ignored,
+/// while strings, chars, and comments can never contribute a match.
+#[must_use]
+fn forbids_unsafe(source: &str) -> bool {
+    let mut state: u8 = 0;
     let mut offset = 0;
     for token in rustc_lexer::tokenize(source) {
         let start = offset;
         offset += token.len;
         if matches!(
             token.kind,
-            rustc_lexer::TokenKind::LineComment | rustc_lexer::TokenKind::BlockComment { .. }
+            TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment { .. }
         ) {
             continue;
         }
-        stripped.push_str(&source[start..offset]);
+        let text = &source[start..offset];
+        state = match (state, token.kind, text) {
+            (0, TokenKind::Pound, _) => 1,
+            (1, TokenKind::Not, _) => 2,
+            (2, TokenKind::OpenBracket, _) => 3,
+            (3, TokenKind::Ident, "forbid") => 4,
+            (4, TokenKind::OpenParen, _) => 5,
+            (5, TokenKind::Ident, "unsafe_code") => 6,
+            (6, TokenKind::CloseParen, _) => 7,
+            (7, TokenKind::CloseBracket, _) => return true,
+            _ => u8::from(token.kind == TokenKind::Pound),
+        };
     }
-    stripped
+    false
 }
 
 /// Count the `unsafe` ident in the source code file's content.
@@ -158,7 +180,7 @@ fn count_unsafe(source: &str) -> usize {
     for token in rustc_lexer::tokenize(source) {
         let start = offset;
         offset += token.len;
-        if token.kind == rustc_lexer::TokenKind::Ident && &source[start..offset] == "unsafe" {
+        if token.kind == TokenKind::Ident && &source[start..offset] == "unsafe" {
             count += 1;
         }
     }
@@ -182,32 +204,28 @@ const fn merge_safety(existing: Safety, recent: Safety) -> Safety {
 #[cfg(test)]
 mod tests {
     use super::{
-        Safety as SFT, compiled_dep_files, count_unsafe, extract_version, merge_safety,
-        strip_comments,
+        Safety as SFT, compiled_dep_files, count_unsafe, extract_version, forbids_unsafe,
+        merge_safety,
     };
     use std::path::PathBuf;
 
     #[test]
-    fn removes_all_comment_styles() {
-        assert_eq!(strip_comments("//! #![forbid(unsafe_code)]"), "");
-        assert_eq!(strip_comments("/// #![forbid(unsafe_code)]"), "");
-        assert_eq!(strip_comments("// #![forbid(unsafe_code)]"), "");
-        assert_eq!(strip_comments("/* #![forbid(unsafe_code)] */"), "");
+    fn detects_forbid_unsafe_attribute() {
+        assert!(forbids_unsafe("#![forbid(unsafe_code)]"));
+        assert!(forbids_unsafe("#![/* comment */forbid(unsafe_code)]"));
+        assert!(forbids_unsafe("# ! [ forbid ( unsafe_code ) ]"));
     }
 
     #[test]
-    fn ignores_comments_in_code() {
-        let attribute = "#![/* unsafe */forbid(unsafe_code)]";
-        assert_eq!(strip_comments(attribute), "#![forbid(unsafe_code)]");
-        assert_eq!(count_unsafe(attribute), 0);
-
-        let string = "let url = \"http://example.com\";";
-        let char = "let c = '/';";
-        assert_eq!(strip_comments(string), string);
-        assert_eq!(strip_comments(char), char);
-
-        let raw_ident = "let r#unsafe = 10;";
-        assert_eq!(count_unsafe(raw_ident), 0);
+    fn rejects_non_attribute_forbid() {
+        for source in [
+            "let s = \"#![forbid(unsafe_code)]\";",
+            "// #![forbid(unsafe_code)]",
+            "/* #![forbid(unsafe_code)] */",
+            "#[forbid(unsafe_code)]",
+        ] {
+            assert!(!forbids_unsafe(source), "false positive: {source}");
+        }
     }
 
     #[test]
@@ -225,6 +243,9 @@ mod tests {
 
         let no_mangle = "#[unsafe(no_mangle)]";
         assert_eq!(count_unsafe(no_mangle), 1);
+
+        let raw_ident = "let r#unsafe = 10;";
+        assert_eq!(count_unsafe(raw_ident), 0);
     }
 
     #[test]
@@ -236,6 +257,9 @@ mod tests {
             home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs:\n
             home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs:\n";
         assert_eq!(extract_version(dep_info), Some("0.2.6"));
+        // TODO: fix this edge case
+        // let dep_info = "/home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/toml-1.1.8+spec-1.1.0/src/lib.rs:";
+        // assert_eq!(extract_version(dep_info), Some("1.1.8+spec-1.1.0"));
     }
 
     #[test]

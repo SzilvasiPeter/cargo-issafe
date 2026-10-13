@@ -49,6 +49,10 @@ The output shows how many times the `unsafe` keyword appears in each dependency:
 
 The tool runs `cargo check --message-format=json` and scans only the `.d` files listed as compiler artifacts, so removed dependencies and changed features leave no stale results. It then counts the `unsafe` keyword in each crate's sources and presents the findings.
 
+## Limitations
+
+Conditional forbid via `cfg_attr`, e.g. `#![cfg_attr(not(feature = "allow-unsafe"), forbid(unsafe_code))]`, is not recognized: such crates report `0 unsafe` instead of `safe`.
+
 ## Contributing
 
 Contributions are welcome.

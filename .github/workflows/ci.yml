@@ -18,6 +18,7 @@ env:
 permissions:
   contents: read
 
+# TODO: add windows and macos host
 jobs:
   checks:
     name: Lint and safety
