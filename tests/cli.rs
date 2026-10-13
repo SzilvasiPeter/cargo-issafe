@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt as _;
 use predicates::str::contains;
 
 fn create_test_project(lib_rs: &str, cargo_toml: &str) -> PathBuf {
@@ -110,7 +111,8 @@ fn reports_safe_for_project_with_forbid_unsafe_and_serde_dependency() {
         .current_dir(&project_dir)
         .assert()
         .success()
-        .stdout(contains("serde"));
+        .stdout(contains("serde"))
+        .stdout(contains("serde_derive").not());
 
     fs::remove_dir_all(&project_dir).ok();
 }
@@ -145,6 +147,58 @@ fn prints_path_dependency_under_root_crate() {
         .assert()
         .success()
         .stdout(contains("path_helpers-0.1.0"));
+
+    fs::remove_dir_all(&project_dir).ok();
+}
+
+#[test]
+fn succeeds_with_default_features() {
+    let project_dir = create_test_project(
+        "pub fn value() -> u32 {\n    tracing::info!(\"value\");\n    0\n}\n",
+        "[package]\nname = \"default-features\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\ntracing = \"0.1\"\n",
+    );
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(&project_dir)
+        .assert()
+        .success()
+        .stdout(contains("tracing_attributes"));
+
+    fs::remove_dir_all(&project_dir).ok();
+}
+
+#[test]
+fn succeeds_with_default_features_disabled() {
+    let project_dir = create_test_project(
+        "#![forbid(unsafe_code)]\npub fn value() -> u32 { 0 }\n",
+        "[package]\nname = \"no-default-features\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\ntracing = { version = \"0.1\", default-features = false }\n",
+    );
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(&project_dir)
+        .assert()
+        .success()
+        .stdout(contains("tracing_core"))
+        .stdout(contains("tracing_attributes").not());
+
+    fs::remove_dir_all(&project_dir).ok();
+}
+
+#[test]
+fn succeeds_with_enabled_features() {
+    let project_dir = create_test_project(
+        "use serde::Serialize;\n#[derive(Serialize)]\npub struct Point {\n    x: u32,\n}\n",
+        "[package]\nname = \"with-features\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\n",
+    );
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(&project_dir)
+        .assert()
+        .success()
+        .stdout(contains("serde_derive"));
 
     fs::remove_dir_all(&project_dir).ok();
 }
