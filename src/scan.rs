@@ -76,11 +76,12 @@ pub fn compiled_dep_files(check_output: &str) -> Vec<PathBuf> {
 
 /// Extract the `.d` file from one `compiler-artifact` JSON line.
 fn artifact_dep_file(line: &str) -> Option<PathBuf> {
-    // TODO: make it white-space and new-line tolerant
-    let rest = line.split("\"filenames\":[").nth(1)?;
-    let array = rest.split(']').next()?;
-    // todo: should split by , and trim " matches
-    array.split('"').find_map(|entry| dep_file_from_artifact(Path::new(entry)))
+    let rest = line.split("\"filenames\"").nth(1)?;
+    let array = rest.split_once('[')?.1.split_once(']')?.0;
+    array
+        .split(',')
+        .map(|entry| entry.trim().trim_matches('"'))
+        .find_map(|entry| dep_file_from_artifact(Path::new(entry)))
 }
 
 /// Map a compiler artifact to its `.d` file.
@@ -294,6 +295,7 @@ mod tests {
     fn compiled_dep_files_from_check_output() {
         let output = r#"{"reason":"compiler-artifact","filenames":["target/debug/deps/libserde-aaa.rmeta"]}
             {"reason":"compiler-artifact","filenames":["target/debug/deps/libmy_bin-bbb.rmeta"]}
+            {"reason":"compiler-artifact","filenames": ["target/debug/deps/libspaced-aaa.rmeta"]}
             {"reason":"compiler-artifact","filenames":["target/debug/deps/libserde_derive-ccc.so"]}
             {"reason":"compiler-artifact","filenames":["target/debug/deps/libsyn-ddd.rlib","target/debug/deps/libsyn-ddd.rmeta"]}
             {"reason":"compiler-artifact","filenames":["target/debug/build/serde-eee/build-script-build"]}
@@ -304,6 +306,7 @@ mod tests {
             vec![
                 PathBuf::from("target/debug/deps/serde-aaa.d"),
                 PathBuf::from("target/debug/deps/my_bin-bbb.d"),
+                PathBuf::from("target/debug/deps/spaced-aaa.d"),
                 PathBuf::from("target/debug/deps/serde_derive-ccc.d"),
                 PathBuf::from("target/debug/deps/syn-ddd.d"),
             ]
