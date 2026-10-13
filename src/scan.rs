@@ -114,9 +114,11 @@ fn dep_file_from_artifact(artifact: &Path) -> Option<PathBuf> {
 fn extract_version(dep_info: &str) -> Option<&str> {
     dep_info.lines().find(|line| line.contains(".rs:")).and_then(|line| {
         let src_pos = line.rfind("/src")?;
-        let dash_pos = line[..src_pos].rfind('-')?;
-        let version = &line[dash_pos + 1..src_pos];
-        version.as_bytes().first().is_some_and(u8::is_ascii_digit).then_some(version)
+        let segment = line[..src_pos].rsplit('/').next()?;
+        segment.match_indices('-').find_map(|(dash, _)| {
+            let version = &segment[dash + 1..];
+            version.as_bytes().first().is_some_and(u8::is_ascii_digit).then_some(version)
+        })
     })
 }
 
@@ -258,9 +260,9 @@ mod tests {
             home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs:\n
             home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs:\n";
         assert_eq!(extract_version(dep_info), Some("0.2.6"));
-        // TODO: fix this edge case
-        // let dep_info = "/home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/toml-1.1.8+spec-1.1.0/src/lib.rs:";
-        // assert_eq!(extract_version(dep_info), Some("1.1.8+spec-1.1.0"));
+
+        let double_hyphen = "/home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/toml-1.1.8+spec-1.1.0/src/lib.rs:";
+        assert_eq!(extract_version(double_hyphen), Some("1.1.8+spec-1.1.0"));
     }
 
     #[test]
