@@ -18,8 +18,32 @@ env:
 permissions:
   contents: read
 
-# TODO: add windows and macos host
+# Jobs:
+# - cli runs the tests/cli.rs suite on Linux, Windows, and macOS.
+# - checks runs lint, coverage, and safety on Linux only.
 jobs:
+  cli:
+    name: CLI tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+
+      - name: CLI tests
+        run: cargo test --test cli
+
   checks:
     name: Lint and safety
     runs-on: ubuntu-latest
