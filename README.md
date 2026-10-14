@@ -51,7 +51,8 @@ The tool runs `cargo check --message-format=json` and scans only the `.d` files 
 
 ## Limitations
 
-Conditional forbid via `cfg_attr`, e.g. `#![cfg_attr(not(feature = "allow-unsafe"), forbid(unsafe_code))]`, is not recognized: such crates report `0 unsafe` instead of `safe`.
+- Conditional forbid via `cfg_attr`, e.g. `#![cfg_attr(not(feature = "allow-unsafe"), forbid(unsafe_code))]`, is not recognized: such crates report `0 unsafe` instead of `safe`.
+- FFI related features such as `extern`, `no_mangle`, `export_name`, and `link_section` syntax depend on the edition. Before edition 2024, they contain no `unsafe` keyword, hence counting zero unsafe usage, but since edition 2024 the same features require `unsafe` prefix.
 
 ## Contributing
 
