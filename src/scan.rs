@@ -226,7 +226,7 @@ mod tests {
             "/* #![forbid(unsafe_code)] */",
             "#[forbid(unsafe_code)]",
         ] {
-            assert!(!forbids_unsafe(source), "false positive: {source}");
+            assert!(!forbids_unsafe(source));
         }
     }
 
@@ -254,6 +254,30 @@ mod tests {
 
         let raw_ident = "let r#unsafe = 10;";
         assert_eq!(count_unsafe(raw_ident), 0);
+    }
+
+    #[test]
+    fn counts_pre_2024_ffi_without_unsafe_keyword() {
+        for source in [
+            "extern \"C\" { fn foo(); }",
+            "#[no_mangle] pub extern \"C\" fn foo() {}",
+            "#[export_name = \"foo\"] pub extern \"C\" fn bar() {}",
+            "#[link_section = \".foo\"] static FOO: u32 = 1;",
+        ] {
+            assert_eq!(count_unsafe(source), 0,);
+        }
+    }
+
+    #[test]
+    fn counts_2024_ffi_with_unsafe_keyword() {
+        for source in [
+            "unsafe extern \"C\" { fn foo(); }",
+            "#[unsafe(no_mangle)] pub fn foo() {}",
+            "#[unsafe(export_name = \"foo\")] pub fn bar() {}",
+            "#[unsafe(link_section = \".foo\")] static FOO: u32 = 1;",
+        ] {
+            assert_eq!(count_unsafe(source), 1);
+        }
     }
 
     #[test]
@@ -308,7 +332,6 @@ mod tests {
             assert_eq!(
                 dep_file_from_artifact(Path::new(artifact)),
                 Some(PathBuf::from("target/debug/deps/serde_derive-aaa.d")),
-                "unmapped artifact: {artifact}",
             );
         }
     }
