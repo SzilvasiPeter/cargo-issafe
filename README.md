@@ -56,7 +56,7 @@ The tool runs `cargo check --message-format=json` and scans only the `.d` files 
 
 ## Contributing
 
-Contributions are welcome.
+Contributions are welcome. The goal is to keep the project small and simple, so when considering new features, please weigh the added functionality against increased maintainability burden and complexity.
 
 ## License
 
