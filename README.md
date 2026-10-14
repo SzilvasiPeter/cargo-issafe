@@ -11,7 +11,7 @@ A lightweight Rust CLI that detects unsafe keyword usage in crates and their dep
 
 ## Why does this exist?
 
-I like the idea of making safe and reliable code, and encountered the [Cargo Geiger](https://github.com/geiger-rs/cargo-geiger) tool to scan unsafe code. I have also realized that most of the crates (including cargo-geiger or even the Rust's standard library) have unsafe code or unsafe dependencies. Although unsafe code is required in performance critical or bridging (FFI) cases, it does not justify its uses in some cases. My plan was to strip down unsafe scanning into its minimal core so that the codebase and dependencies are safe:
+I care about writing safe and reliable code. This project was inspired by the [Cargo Geiger](https://github.com/geiger-rs/cargo-geiger) project, which scans for unsafe code. I have also realized that most crates (even the Rust standard library) have unsafe code or unsafe dependencies. Unsafe is like a sharp knife: if you can't use it, you will cut yourself, but it is an essential tool for survival. In some cases (e.g. FFI and hardware operations) it is unavoidable, because safe code builds on unsafe code, unsafe code bridges to C, and C talks to Linux. In other cases, unsafe usage is not justified and *may* cause undefined behaviors (UB) in the future. Since I am bad at handling sharp objects, I stripped down unsafe scanning into its minimal core so that the codebase and dependencies are safe:
 
 - No unsafe code
 - No unsafe dependencies [^1]
