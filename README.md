@@ -45,6 +45,8 @@ The output shows how many times the `unsafe` keyword appears in each dependency:
 > [!NOTE]
 > The "0 unsafe" means that the crate doesn't use unsafe code, but it does not forbid it with the `#![forbid(unsafe_code)]` attribute.
 
+If you found a lot of unsafe occurrences, please [don't panic](DONTPANIC.md).
+
 ## How does it work under the hood?
 
 The tool runs `cargo check --message-format=json` and scans only the `.d` files listed as compiler artifacts, so removed dependencies and changed features leave no stale results. It then counts the `unsafe` keyword in each crate's sources and presents the findings.
