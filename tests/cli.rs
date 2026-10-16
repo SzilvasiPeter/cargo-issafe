@@ -146,6 +146,18 @@ fn fails_without_workspace_flag_when_workspace_detected() {
 }
 
 #[test]
+fn prints_help_with_help_flag() {
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(contains("Usage"))
+        .stdout(contains("--fail-on-unsafe"))
+        .stdout(contains("--workspace"));
+}
+
+#[test]
 fn reports_safe_for_project_with_forbid_unsafe_and_serde_dependency() {
     let project_dir = create_test_project(
         "#![forbid(unsafe_code)]\npub fn value() -> u32 { 0 }\n",
