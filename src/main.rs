@@ -10,7 +10,22 @@ use cargo_issafe::manifest::{manifest_paths, package_name};
 use cargo_issafe::scan::{Safety, compiled_dep_files, dependency_safety};
 use cargo_issafe::tree::{dependency_tree, format_tree};
 
+const HELP: &str = "cargo-issafe - detect `unsafe` keyword usage in crates and dependencies
+
+Usage: cargo issafe [--fail-on-unsafe] [--workspace]
+
+Options:
+    --fail-on-unsafe    fail when the crate or its dependencies use unsafe code
+    --workspace         scan all workspace members
+    --help              print this help message
+";
+
 fn main() -> Result<(), Box<dyn Error>> {
+    if args().any(|arg| arg == "--help") {
+        print!("{HELP}");
+        return Ok(());
+    }
+
     let fail_on_unsafe = args().any(|arg| arg == "--fail-on-unsafe");
     let workspace = args().find(|arg| arg == "--workspace");
 

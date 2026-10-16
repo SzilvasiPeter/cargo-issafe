@@ -32,8 +32,6 @@ Run it from your crate:
 cargo issafe
 ```
 
-If you want to fail when unsafe code is present, then use the `--fail-on-unsafe` argument.
-
 The output shows how many times the `unsafe` keyword appears in each dependency:
 
 ```
@@ -43,7 +41,20 @@ The output shows how many times the `unsafe` keyword appears in each dependency:
 ```
 
 > [!NOTE]
-> The "0 unsafe" means that the crate doesn't use unsafe code, but it does not forbid it with the `#![forbid(unsafe_code)]` attribute.
+> The "0 unsafe" means that the crate doesn't use unsafe code, but it does not forbid with the `#![forbid(unsafe_code)]` attribute.
+
+Run with `--help` to see all arguments:
+
+```
+cargo-issafe - detect `unsafe` keyword usage in crates and dependencies
+
+Usage: cargo issafe [--fail-on-unsafe] [--workspace]
+
+Options:
+    --fail-on-unsafe    fail when the crate or its dependencies use unsafe code
+    --workspace         scan all workspace members
+    --help              print this help message
+```
 
 If you found a lot of unsafe occurrences, please [don't panic](DONTPANIC.md).
 
@@ -54,7 +65,7 @@ The tool runs `cargo check --message-format=json` and scans only the `.d` files 
 ## Limitations
 
 - Conditional forbid via `cfg_attr`, e.g. `#![cfg_attr(not(feature = "allow-unsafe"), forbid(unsafe_code))]`, is not recognized: such crates report `0 unsafe` instead of `safe`.
-- FFI related features such as `extern`, `no_mangle`, `export_name`, and `link_section` syntax depend on the edition. Before edition 2024, they contain no `unsafe` keyword, hence counting zero unsafe usage, but since edition 2024 the same features require `unsafe` prefix.
+- FFI related features such as `extern`, `no_mangle`, `export_name`, and `link_section` depend on the edition. Before edition 2024, they contain no `unsafe` keyword, hence counting zero unsafe usage, but since edition 2024 the same features require `unsafe` prefix.
 
 ## Contributing
 
