@@ -6,30 +6,51 @@ use std::error::Error;
 use std::fs;
 use std::process::Command;
 
-use cargo_issafe::manifest::package_name;
+use cargo_issafe::manifest::{manifest_paths, package_name};
 use cargo_issafe::scan::{Safety, compiled_dep_files, dependency_safety};
 use cargo_issafe::tree::{dependency_tree, format_tree};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let fail_on_unsafe = args().any(|arg| arg == "--fail-on-unsafe");
+    let workspace = args().find(|arg| arg == "--workspace");
 
-    let check = Command::new("cargo").args(["check", "--message-format=json"]).output()?;
+    let check_args = ["check", "--message-format=json"];
+    let check = Command::new("cargo").args(check_args).args(&workspace).output()?;
     if !check.status.success() {
-        return Err("cargo check failed".into());
+        return Err("the `cargo check` command failed.".into());
     }
+
+    let metadata_args = ["metadata", "--no-deps", "--format-version=1"];
+    let metadata = Command::new("cargo").args(metadata_args).output()?;
+    if !metadata.status.success() {
+        return Err("the `cargo metadata` command failed.".into());
+    }
+
+    let mut roots = Vec::new();
+    let metadata_stdout = String::from_utf8_lossy(&metadata.stdout);
+    for path in manifest_paths(&metadata_stdout) {
+        let manifest = fs::read_to_string(path).map_err(|err| format!("{path}: {err}"))?;
+        if let Some(name) = package_name(&manifest) {
+            roots.push(name.replace('-', "_"));
+        }
+    }
+
+    if roots.len() > 1 && workspace.is_none() {
+        return Err("cargo workspace is detected, use the `--workspace` argument.".into());
+    }
+
+    let lockfile = fs::read_to_string("Cargo.lock").map_err(|err| format!("Cargo.lock: {err}"))?;
     let stdout = String::from_utf8_lossy(&check.stdout);
     let dep_files = compiled_dep_files(&stdout);
-
     let crate_safety = dependency_safety(&dep_files)?;
-    let lockfile = fs::read_to_string("Cargo.lock").map_err(|err| format!("Cargo.lock: {err}"))?;
-    let manifest = fs::read_to_string("Cargo.toml").map_err(|err| format!("Cargo.toml: {err}"))?;
-    let root_crate = package_name(&manifest).ok_or("missing `name` in [package] table")?;
-    let normalized_root = root_crate.replace('-', "_");
-    let tree = dependency_tree(&normalized_root, &lockfile)?;
-    print!("{}", format_tree(&tree, &crate_safety));
+    for root in roots {
+        let tree = dependency_tree(&root, &lockfile)?;
+        print!("{}", format_tree(&tree, &crate_safety));
+        println!("---");
+    }
 
     if fail_on_unsafe && crate_safety.values().any(|krate| matches!(krate, Safety::UsesUnsafe(_))) {
-        return Err("the crate or its dependencies use unsafe code".into());
+        return Err("the crate or its dependencies use unsafe code.".into());
     }
 
     Ok(())

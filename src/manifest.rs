@@ -1,5 +1,18 @@
 //! Parses Cargo manifest files.
 
+/// Returns the manifest paths of workspace members from `cargo metadata` output.
+#[must_use]
+pub fn manifest_paths(metadata: &str) -> Vec<&str> {
+    metadata
+        .split("\"manifest_path\"")
+        .skip(1)
+        .filter_map(|tail| {
+            Some(tail.split_once(':')?.1.trim_start().strip_prefix('"')?.split_once('"')?.0)
+        })
+        .collect()
+}
+
+///
 /// Returns the crate name from the `[package]` table section.
 ///
 /// Returns [`None`] if the manifest has no `[package]` table, e.g.
@@ -14,7 +27,7 @@ pub fn package_name(manifest: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::package_name;
+    use super::{manifest_paths, package_name};
 
     #[test]
     fn extract_package_name_with_whitespaces() {
@@ -59,5 +72,14 @@ mod tests {
         for case in cases {
             assert_eq!(package_name(case), Some("value"));
         }
+    }
+
+    #[test]
+    fn extracts_manifest_paths_from_metadata() {
+        let metadata = r#"{"packages":[{"name":"root","manifest_path":"/ws/Cargo.toml"},{"name":"member","manifest_path": "/ws/member/Cargo.toml"}]}"#;
+        assert_eq!(manifest_paths(metadata), ["/ws/Cargo.toml", "/ws/member/Cargo.toml"]);
+
+        let empty = [] as [&str; 0];
+        assert_eq!(manifest_paths(r#"{"packages":[]}"#), empty);
     }
 }

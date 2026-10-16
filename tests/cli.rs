@@ -54,37 +54,96 @@ fn fails_with_cargo_check_failed_when_project_does_not_compile() {
         .current_dir(project_dir.path())
         .assert()
         .failure()
-        .stderr(contains("cargo check failed"));
+        .stderr(contains("the `cargo check` command failed"));
 }
 
-// TODO: enable this test after workspace support is added
-// #[test]
-// fn supports_cargo_workspace() {
-//     let workspace_dir = TempDir::new().unwrap();
-//     fs::create_dir_all(workspace_dir.path().join("member/src")).unwrap();
-//     fs::write(
-//         workspace_dir.path().join("Cargo.toml"),
-//         "[workspace]\nresolver = \"2\"\nmembers = [\"member\"]\n",
-//     )
-//     .unwrap();
-//     fs::write(
-//         workspace_dir.path().join("member/Cargo.toml"),
-//         "[package]\nname = \"ws-member\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
-//     )
-//     .unwrap();
-//     fs::write(
-//         workspace_dir.path().join("member/src/lib.rs"),
-//         "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",
-//     )
-//     .unwrap();
-//
-//     Command::cargo_bin("cargo-issafe")
-//         .unwrap()
-//         .current_dir(workspace_dir.path())
-//         .assert()
-//         .success()
-//         .stdout(contains("ws_member"));
-// }
+#[test]
+fn single_member_workspace() {
+    let workspace_dir = TempDir::new().unwrap();
+    fs::create_dir_all(workspace_dir.path().join("member/src")).unwrap();
+    fs::write(
+        workspace_dir.path().join("Cargo.toml"),
+        "[workspace]\nresolver = \"2\"\nmembers = [\"member\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        workspace_dir.path().join("member/Cargo.toml"),
+        "[package]\nname = \"ws-member\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    fs::write(
+        workspace_dir.path().join("member/src/lib.rs"),
+        "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .arg("--workspace")
+        .current_dir(workspace_dir.path())
+        .assert()
+        .success()
+        .stdout(contains("ws_member"));
+}
+
+#[test]
+fn multiple_members_workspace() {
+    let workspace_dir = TempDir::new().unwrap();
+    for member in ["first-member", "second-member"] {
+        let member_dir = workspace_dir.path().join(member);
+        fs::create_dir_all(member_dir.join("src")).unwrap();
+        fs::write(
+            member_dir.join("Cargo.toml"),
+            format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n"),
+        )
+        .unwrap();
+        fs::write(member_dir.join("src/lib.rs"), "pub fn value() -> u32 { 0 }\n").unwrap();
+    }
+    fs::write(
+        workspace_dir.path().join("Cargo.toml"),
+        "[workspace]\nresolver = \"2\"\nmembers = [\"first-member\", \"second-member\"]\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .arg("--workspace")
+        .current_dir(workspace_dir.path())
+        .assert()
+        .success()
+        .stdout(contains("first_member"))
+        .stdout(contains("second_member"))
+        .stdout(contains("---\n"));
+}
+
+#[test]
+fn fails_without_workspace_flag_when_workspace_detected() {
+    let workspace_dir = TempDir::new().unwrap();
+    for member in ["first-member", "second-member"] {
+        let member_dir = workspace_dir.path().join(member);
+        fs::create_dir_all(member_dir.join("src")).unwrap();
+        fs::write(
+            member_dir.join("Cargo.toml"),
+            format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n"),
+        )
+        .unwrap();
+        fs::write(member_dir.join("src/lib.rs"), "pub fn value() -> u32 { 0 }\n").unwrap();
+    }
+    fs::create_dir_all(workspace_dir.path().join("src")).unwrap();
+    fs::write(workspace_dir.path().join("src/lib.rs"), "pub fn value() -> u32 { 0 }\n").unwrap();
+    fs::write(
+        workspace_dir.path().join("Cargo.toml"),
+        "[package]\nname = \"ws-root\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[workspace]\nresolver = \"2\"\nmembers = [\"first-member\", \"second-member\"]\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(workspace_dir.path())
+        .assert()
+        .failure()
+        .stderr(contains("cargo workspace is detected, use the `--workspace` argument"));
+}
 
 #[test]
 fn reports_safe_for_project_with_forbid_unsafe_and_serde_dependency() {

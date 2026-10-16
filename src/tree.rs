@@ -90,8 +90,7 @@ fn collect_deps(package: &str) -> Vec<&str> {
     package
         .split_once("dependencies = [")
         .and_then(|(_, rest)| rest.split_once(']'))
-        .map(|(deps_str, _)| deps_str.lines().filter_map(|line| line.split('"').nth(1)).collect())
-        .unwrap_or_default()
+        .map_or_default(|(deps, _)| deps.lines().filter_map(|ln| ln.split('"').nth(1)).collect())
 }
 
 /// Resolves a single dependency entry (e.g. `"syn 2.0.119"`) to the index of the matching package.
