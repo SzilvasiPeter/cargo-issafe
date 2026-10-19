@@ -278,7 +278,7 @@ fn reports_package_name_for_renamed_lib_and_bin_targets() {
     if let Ok(safety) = safety_result {
         assert_eq!(
             safety,
-            HashMap::from([("renamed_targets-0.1.0".to_string(), Safety::UsesUnsafe(2))])
+            HashMap::from([("renamed-targets-0.1.0".to_string(), Safety::UsesUnsafe(2))])
         );
     }
 }

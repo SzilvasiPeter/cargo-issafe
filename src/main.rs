@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for path in manifest_paths(&metadata_stdout) {
         let manifest = fs::read_to_string(path).map_err(|err| format!("{path}: {err}"))?;
         if let Some(name) = package_name(&manifest) {
-            roots.push(name.replace('-', "_"));
+            roots.push(name.to_string());
         }
     }
 

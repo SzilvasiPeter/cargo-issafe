@@ -83,7 +83,7 @@ fn single_member_workspace() {
         .current_dir(workspace_dir.path())
         .assert()
         .success()
-        .stdout(contains("ws_member"));
+        .stdout(contains("ws-member"));
 }
 
 #[test]
@@ -111,8 +111,8 @@ fn multiple_members_workspace() {
         .current_dir(workspace_dir.path())
         .assert()
         .success()
-        .stdout(contains("first_member"))
-        .stdout(contains("second_member"))
+        .stdout(contains("first-member"))
+        .stdout(contains("second-member"))
         .stdout(contains("---\n"));
 }
 
@@ -204,7 +204,7 @@ fn prints_path_dependency_under_root_crate() {
         .current_dir(project_dir.path())
         .assert()
         .success()
-        .stdout(contains("path_helpers-0.1.0"));
+        .stdout(contains("path-helpers-0.1.0"));
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn succeeds_with_default_features() {
         .current_dir(project_dir.path())
         .assert()
         .success()
-        .stdout(contains("tracing_attributes"));
+        .stdout(contains("tracing-attributes"));
 }
 
 #[test]
@@ -234,8 +234,8 @@ fn succeeds_with_default_features_disabled() {
         .current_dir(project_dir.path())
         .assert()
         .success()
-        .stdout(contains("tracing_core"))
-        .stdout(contains("tracing_attributes").not());
+        .stdout(contains("tracing-core"))
+        .stdout(contains("tracing-attributes").not());
 }
 
 #[test]
@@ -274,7 +274,7 @@ fn reports_root_crate_with_custom_binary_and_library_names() {
         .current_dir(project_dir.path())
         .assert()
         .success()
-        .stdout(contains("renamed_targets-0.1.0").count(1))
+        .stdout(contains("renamed-targets-0.1.0").count(1))
         .stdout(contains("newlib").not())
         .stdout(contains("newbin").not());
 }
@@ -304,7 +304,7 @@ fn reports_root_crate_when_lib_and_bin_share_a_target_name() {
         .current_dir(project_dir.path())
         .assert()
         .success()
-        .stdout(contains("renamed_targets-0.1.0").count(1))
+        .stdout(contains("renamed-targets-0.1.0").count(1))
         .stdout(contains("3 unsafe"));
 }
 
@@ -339,6 +339,6 @@ fn reports_path_dependency_with_a_renamed_library_name() {
         .current_dir(project_dir.path())
         .assert()
         .success()
-        .stdout(contains("path_helpers-0.1.0").and(contains("safe")))
+        .stdout(contains("path-helpers-0.1.0").and(contains("safe")))
         .stdout(contains("helpers_renamed").not());
 }

@@ -41,7 +41,7 @@ pub struct CompiledUnit {
 pub fn dependency_safety(units: &[CompiledUnit]) -> Result<HashMap<String, Safety>, ScanError> {
     let mut results = HashMap::new();
     for unit in units {
-        let Some(crate_name) = lockfile_key(&unit.package_id) else {
+        let Some(package_key) = lockfile_key(&unit.package_id) else {
             continue;
         };
 
@@ -58,7 +58,7 @@ pub fn dependency_safety(units: &[CompiledUnit]) -> Result<HashMap<String, Safet
 
         let crate_safety = crate_safety_profile(&sources)?;
         results
-            .entry(crate_name)
+            .entry(package_key)
             .and_modify(|existing| *existing = merge_safety(*existing, crate_safety))
             .or_insert(crate_safety);
     }
@@ -121,7 +121,7 @@ fn dep_file_from_artifact(artifact: &Path) -> Option<PathBuf> {
     Some(parent.join(format!("{stripped}.d")))
 }
 
-/// Convert a `package_id` into the `<crate_name>-<version>` key used by the dependency tree.
+/// Convert a `package_id` into the `<package_name>-<version>` key used by the dependency tree.
 ///
 /// The source origin (`registry+`, `path+`, `git+`, …) is irrelevant. Cargo omits the
 /// `name@` part when it repeats the last path segment, which is common for workspace
@@ -140,7 +140,7 @@ fn lockfile_key(package_id: &str) -> Option<String> {
     if name.is_empty() || !version.starts_with(|char: char| char.is_ascii_digit()) {
         return None;
     }
-    Some(format!("{}-{}", name.replace('-', "_"), version))
+    Some(format!("{name}-{version}"))
 }
 
 /// Scan the crate's source files for `unsafe` usage.
@@ -309,16 +309,16 @@ mod tests {
     fn builds_lockfile_key_from_package_id() {
         let cases = [
             ("registry+https://example.com#serde@1.0.229", "serde-1.0.229"),
-            ("sparse+https://example.com#proc-macro2@1.0.95", "proc_macro2-1.0.95"),
+            ("sparse+https://example.com#proc-macro2@1.0.95", "proc-macro2-1.0.95"),
             ("git+https://example.com#bar@0.1.0", "bar-0.1.0"),
-            ("path+file:///ws#my-helper@0.1.0", "my_helper-0.1.0"),
+            ("path+file:///ws#my-helper@0.1.0", "my-helper-0.1.0"),
             // The target is renamed, but the package name still comes from the lock file.
-            ("path+file:///ws#renamed-targets@0.1.0", "renamed_targets-0.1.0"),
+            ("path+file:///ws#renamed-targets@0.1.0", "renamed-targets-0.1.0"),
             // A directory that differs from the package name keeps the explicit `name@` part.
-            ("path+file:///ws/crates/foo#totally-different@0.1.0", "totally_different-0.1.0"),
+            ("path+file:///ws/crates/foo#totally-different@0.1.0", "totally-different-0.1.0"),
             // Workspace members repeat the package name as the last path segment, so Cargo
             // drops the `name@` part.
-            ("path+file:///ws/first-member#0.1.0", "first_member-0.1.0"),
+            ("path+file:///ws/first-member#0.1.0", "first-member-0.1.0"),
             // The version itself carries dashes and plus signs.
             ("registry+https://example.com#toml@1.1.8+spec-1.1.0", "toml-1.1.8+spec-1.1.0"),
         ];

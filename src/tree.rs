@@ -17,7 +17,7 @@ type SafetyMap<S> = HashMap<String, Safety, S>;
 /// A single package node in the dependency tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Package {
-    /// Package ID formatted as `<crate_name>-<version>`.
+    /// Package ID formatted as `<package_name>-<version>`, as recorded in the lockfile.
     pub id: String,
     /// Indices of this package's dependencies within [`DependencyTree::nodes`].
     pub dependencies: Vec<usize>,
@@ -35,7 +35,7 @@ pub struct DependencyTree {
 /// Parses a Cargo.lock file's contents into a [`DependencyTree`].
 ///
 /// # Arguments
-/// * `root_crate` - The root crate name (in snake case) to start building the tree from.
+/// * `root_crate` - The root crate name to start building the tree from.
 /// * `lockfile` - The string content of the `Cargo.lock` file to parse.
 ///
 /// # Errors
@@ -53,7 +53,7 @@ pub fn dependency_tree(root_crate: &str, lockfile: &str) -> Result<DependencyTre
         .iter()
         .enumerate()
         .map(|(i, pkg)| {
-            let name = get_value(pkg, "name = ").ok_or(TreeError::MissingField)?.replace('-', "_");
+            let name = get_value(pkg, "name = ").ok_or(TreeError::MissingField)?;
             let version = get_value(pkg, "version = ").ok_or(TreeError::MissingField)?;
             if name == root_crate {
                 root = Some(i);
