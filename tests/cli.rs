@@ -117,6 +117,54 @@ fn multiple_members_workspace() {
 }
 
 #[test]
+fn expands_the_dependencies_of_a_shared_crate_only_once() {
+    let workspace_dir = TempDir::new().unwrap();
+    for member in ["first-member", "second-member"] {
+        let member_dir = workspace_dir.path().join(member);
+        fs::create_dir_all(member_dir.join("src")).unwrap();
+        fs::write(
+            member_dir.join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\ncommon = {{ path = \"../common\" }}\n"
+            ),
+        )
+        .unwrap();
+        fs::write(member_dir.join("src/lib.rs"), "pub fn value() -> u32 { 0 }\n").unwrap();
+    }
+    for (name, deps, source) in [
+        ("common", "leaf = { path = \"../leaf\" }", "pub fn shared() -> u32 { 0 }\n"),
+        ("leaf", "", "pub fn leaf() -> u32 { 0 }\n"),
+    ] {
+        let dir = workspace_dir.path().join(name);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        let dependencies =
+            if deps.is_empty() { String::new() } else { format!("\n[dependencies]\n{deps}\n") };
+        fs::write(
+            dir.join("Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n{dependencies}"),
+        )
+        .unwrap();
+        fs::write(dir.join("src/lib.rs"), source).unwrap();
+    }
+    fs::write(
+        workspace_dir.path().join("Cargo.toml"),
+        "[workspace]\nresolver = \"2\"\nmembers = [\"first-member\", \"second-member\"]\nexclude = [\"common\", \"leaf\"]\n",
+    )
+    .unwrap();
+
+    let assert = Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .arg("--workspace")
+        .current_dir(workspace_dir.path())
+        .assert()
+        .success();
+
+    let output = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert_eq!(output.matches("- common-0.1.0 ").count(), 2, "{output}");
+    assert_eq!(output.matches("- leaf-0.1.0 ").count(), 1, "{output}");
+}
+
+#[test]
 fn fails_without_workspace_flag_when_workspace_detected() {
     let workspace_dir = TempDir::new().unwrap();
     for member in ["first-member", "second-member"] {

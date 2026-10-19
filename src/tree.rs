@@ -113,10 +113,15 @@ fn resolve_dep(dep: &str, packages: &[&str]) -> Result<usize, TreeError> {
 /// Formats the dependency tree as a string with safety labels.
 ///
 /// Each line represents a package with its safety classification, indented by depth.
-/// Already visited packages are not expanded again.
+/// Already visited packages are printed again, but their dependencies are not expanded.
+/// The caller keeps the `visited` set across calls so a shared dependency is expanded
+/// only under the first workspace member that reaches it.
 #[must_use]
-pub fn format_tree<S: BuildHasher>(tree: &DependencyTree, safety_map: &SafetyMap<S>) -> String {
-    let mut visited = HashSet::new();
+pub fn format_tree<S: BuildHasher>(
+    tree: &DependencyTree,
+    safety_map: &SafetyMap<S>,
+    visited: &mut HashSet<String, S>,
+) -> String {
     let mut output = String::new();
     let mut stack = vec![(tree.root, 0)];
 

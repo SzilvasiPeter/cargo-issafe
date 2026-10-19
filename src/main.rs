@@ -1,6 +1,7 @@
 //! Scans Rust project and its dependencies and reports their unsafe code usage.
 #![forbid(unsafe_code)]
 
+use std::collections::HashSet;
 use std::env::args;
 use std::error::Error;
 use std::fs;
@@ -58,9 +59,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let stdout = String::from_utf8_lossy(&check.stdout);
     let dep_units = compiled_units(&stdout);
     let crate_safety = dependency_safety(&dep_units)?;
+    let mut visited = HashSet::new();
     for root in roots {
         let tree = dependency_tree(&root, &lockfile)?;
-        print!("{}", format_tree(&tree, &crate_safety));
+        print!("{}", format_tree(&tree, &crate_safety, &mut visited));
         println!("---");
     }
 
