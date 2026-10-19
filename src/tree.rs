@@ -17,7 +17,7 @@ type SafetyMap<S> = HashMap<String, Safety, S>;
 /// A single package node in the dependency tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Package {
-    /// Package ID formatted as `<crate_name>-<version>` (the root crate drops the version info).
+    /// Package ID formatted as `<crate_name>-<version>`.
     pub id: String,
     /// Indices of this package's dependencies within [`DependencyTree::nodes`].
     pub dependencies: Vec<usize>,
@@ -55,12 +55,10 @@ pub fn dependency_tree(root_crate: &str, lockfile: &str) -> Result<DependencyTre
         .map(|(i, pkg)| {
             let name = get_value(pkg, "name = ").ok_or(TreeError::MissingField)?.replace('-', "_");
             let version = get_value(pkg, "version = ").ok_or(TreeError::MissingField)?;
-            let id = if name == root_crate {
+            if name == root_crate {
                 root = Some(i);
-                name
-            } else {
-                format!("{name}-{version}")
-            };
+            }
+            let id = format!("{name}-{version}");
 
             let dependencies = collect_deps(pkg)
                 .into_iter()
@@ -125,11 +123,7 @@ pub fn format_tree<S: BuildHasher>(tree: &DependencyTree, safety_map: &SafetyMap
     while let Some((idx, depth)) = stack.pop() {
         let node = &tree.nodes[idx];
         let id = &node.id;
-        let Some(safety) = safety_map
-            .get(id)
-            // Safety map stores local crates without version while package ID keeps the version
-            .or_else(|| safety_map.get(id.split_once('-').map_or(id.as_str(), |(name, _)| name)))
-        else {
+        let Some(safety) = safety_map.get(id) else {
             continue;
         };
 

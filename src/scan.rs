@@ -21,27 +21,33 @@ pub enum Safety {
     UsesUnsafe(usize),
 }
 
-/// Scan the given dependency (`.d`) files for `unsafe` usage.
+/// A single compilation unit reported by `cargo check`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledUnit {
+    /// The package identity from the artifact's `package_id` field.
+    pub package_id: String,
+    /// The compiler's dependency (`.d`) file.
+    pub dep_file: PathBuf,
+}
+
+/// Scan the given compilation units for `unsafe` usage.
 ///
-/// Returns a map from crate name with version to its safety classification.
+/// Returns a map from package name with version to its safety classification.
+/// Units of the same package share a `package_id` and merge into a single entry.
 ///
 /// # Errors
 /// Returns [`ScanError::Io`] if a file can't be read,
 /// or [`ScanError::MissingEntryPoint`] if a `.d` file lists no `.rs` source.
-pub fn dependency_safety(paths: &[PathBuf]) -> Result<HashMap<String, Safety>, ScanError> {
+pub fn dependency_safety(units: &[CompiledUnit]) -> Result<HashMap<String, Safety>, ScanError> {
     let mut results = HashMap::new();
-    for path in paths {
-        // Crate name is the part before the first dash, e.g. rustc_lexer-bfc1ea28fe193e21.d
-        let crate_name = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .and_then(|stem| stem.split('-').next())
-            .unwrap_or_default()
-            .to_string();
+    for unit in units {
+        let Some(crate_name) = lockfile_key(&unit.package_id) else {
+            continue;
+        };
 
         // Gather all source code files from the dependency (.d) file.
         // Only trailer lines (e.g. `src/lib.rs:`) hold source paths.
-        let dep_info = fs::read_to_string(path)?;
+        let dep_info = fs::read_to_string(&unit.dep_file)?;
         let sources: Vec<PathBuf> = dep_info
             .lines()
             .map(str::trim)
@@ -50,11 +56,6 @@ pub fn dependency_safety(paths: &[PathBuf]) -> Result<HashMap<String, Safety>, S
             .filter(|source| source.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs")))
             .collect();
 
-        let version = extract_version(&dep_info);
-        let crate_name = match version {
-            Some(version) => format!("{crate_name}-{version}"),
-            None => crate_name,
-        };
         let crate_safety = crate_safety_profile(&sources)?;
         results
             .entry(crate_name)
@@ -65,14 +66,30 @@ pub fn dependency_safety(paths: &[PathBuf]) -> Result<HashMap<String, Safety>, S
     Ok(results)
 }
 
-/// Collect the active `.d` files from `cargo check --message-format=json` output.
+/// Collect the compiled units from `cargo check --message-format=json` output.
 #[must_use]
-pub fn compiled_dep_files(check_output: &str) -> Vec<PathBuf> {
+pub fn compiled_units(check_output: &str) -> Vec<CompiledUnit> {
     check_output
         .lines()
         .filter(|line| line.contains("\"reason\":\"compiler-artifact\""))
-        .filter_map(artifact_dep_file)
+        .filter_map(artifact_unit)
         .collect()
+}
+
+/// Extract the `package_id` and the `.d` file from one `compiler-artifact` JSON line.
+///
+/// The fields are looked up independently, so their serialization order does not matter.
+fn artifact_unit(line: &str) -> Option<CompiledUnit> {
+    let package_id = artifact_package_id(line)?.to_string();
+    let dep_file = artifact_dep_file(line)?;
+    Some(CompiledUnit { package_id, dep_file })
+}
+
+/// Read the `package_id` field of a `compiler-artifact` JSON line.
+fn artifact_package_id(line: &str) -> Option<&str> {
+    let rest = line.split("\"package_id\"").nth(1)?;
+    let value = rest.split_once(':')?.1.trim_start().strip_prefix('"')?;
+    Some(value.split_once('"')?.0)
 }
 
 /// Extract the `.d` file from one `compiler-artifact` JSON line.
@@ -104,21 +121,26 @@ fn dep_file_from_artifact(artifact: &Path) -> Option<PathBuf> {
     Some(parent.join(format!("{stripped}.d")))
 }
 
-/// Extract the crate version from a dependency (.d) file's content.
+/// Convert a `package_id` into the `<crate_name>-<version>` key used by the dependency tree.
 ///
-/// External registry dependencies always has version number, e.g.
-/// the `0.2.6` version from `.cargo/registry/src/.../unicode-xid-0.2.6/src/lib.rs:` line.
-/// On the other hand, local crates don't contain version information, e.g.
-/// `src/main.rs:` or `my-helper/src/lib.rs:` lines.
-fn extract_version(dep_info: &str) -> Option<&str> {
-    dep_info.lines().find(|line| line.contains(".rs:")).and_then(|line| {
-        let src_pos = line.rfind("/src").or_else(|| line.rfind("\\src"))?;
-        let segment = line[..src_pos].rsplit(['/', '\\']).next()?;
-        segment.match_indices('-').find_map(|(dash, _)| {
-            let version = &segment[dash + 1..];
-            version.as_bytes().first().is_some_and(u8::is_ascii_digit).then_some(version)
-        })
-    })
+/// The source origin (`registry+`, `path+`, `git+`, …) is irrelevant. Cargo omits the
+/// `name@` part when it repeats the last path segment, which is common for workspace
+/// members, so the name is then recovered from the path. Versions may contain dashes
+/// and plus signs, so only the last `#` and the last `@` separate the fields.
+///
+/// Returns [`None`] if the identifier carries no name and no version.
+#[must_use]
+fn lockfile_key(package_id: &str) -> Option<String> {
+    let (source, name_and_version) = package_id.rsplit_once('#')?;
+    let (name, version) = match name_and_version.rsplit_once('@') {
+        Some((name, version)) => (name, version),
+        None => (source.rsplit(['/', '\\']).next()?, name_and_version),
+    };
+
+    if name.is_empty() || !version.starts_with(|char: char| char.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("{}-{}", name.replace('-', "_"), version))
 }
 
 /// Scan the crate's source files for `unsafe` usage.
@@ -206,8 +228,8 @@ const fn merge_safety(existing: Safety, recent: Safety) -> Safety {
 #[cfg(test)]
 mod tests {
     use super::{
-        Safety as SFT, compiled_dep_files, count_unsafe, dep_file_from_artifact, extract_version,
-        forbids_unsafe, merge_safety,
+        CompiledUnit, Safety as SFT, artifact_dep_file, artifact_package_id, compiled_units,
+        count_unsafe, dep_file_from_artifact, forbids_unsafe, lockfile_key, merge_safety,
     };
     use std::path::{Path, PathBuf};
 
@@ -228,12 +250,6 @@ mod tests {
         ] {
             assert!(!forbids_unsafe(source));
         }
-    }
-
-    #[test]
-    fn extracts_version_from_backslash_path() {
-        let dep_info = "D:\\cargo\\registry\\src\\index\\libc-0.2.177\\src\\lib.rs:\n";
-        assert_eq!(extract_version(dep_info), Some("0.2.177"));
     }
 
     #[test]
@@ -281,27 +297,51 @@ mod tests {
     }
 
     #[test]
-    fn extracts_version_from_dep_info() {
-        let dep_info = "
-            home/ws/cargo-issafe/target/debug/deps/unicode_xid-39a96c518b5bd65a.d: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs\n\n
-            home/ws/cargo-issafe/target/debug/deps/libunicode_xid-39a96c518b5bd65a.rlib: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs\n\n
-            home/ws/cargo-issafe/target/debug/deps/libunicode_xid-39a96c518b5bd65a.rmeta: home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs\n\n
-            home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/lib.rs:\n
-            home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-xid-0.2.6/src/tables.rs:\n";
-        assert_eq!(extract_version(dep_info), Some("0.2.6"));
+    fn extracts_package_id_from_artifact() {
+        let line = r#"{"package_id":"path+file:///ws#serde@1.0.229","filenames":["a.rmeta"]}"#;
+        assert_eq!(artifact_package_id(line), Some("path+file:///ws#serde@1.0.229"));
 
-        let double_hyphen = "/home/pszilvasi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/toml-1.1.8+spec-1.1.0/src/lib.rs:";
-        assert_eq!(extract_version(double_hyphen), Some("1.1.8+spec-1.1.0"));
+        let missing = r#"{"filenames":["a.rmeta"]}"#;
+        assert_eq!(artifact_package_id(missing), None);
     }
 
     #[test]
-    fn ignores_directory_name_as_version() {
-        let dep_info = "
-            target/debug/deps/my_helpers-3b54bc15001c55ad.d: my-helpers/src/lib.rs
+    fn builds_lockfile_key_from_package_id() {
+        let cases = [
+            ("registry+https://example.com#serde@1.0.229", "serde-1.0.229"),
+            ("sparse+https://example.com#proc-macro2@1.0.95", "proc_macro2-1.0.95"),
+            ("git+https://example.com#bar@0.1.0", "bar-0.1.0"),
+            ("path+file:///ws#my-helper@0.1.0", "my_helper-0.1.0"),
+            // The target is renamed, but the package name still comes from the lock file.
+            ("path+file:///ws#renamed-targets@0.1.0", "renamed_targets-0.1.0"),
+            // A directory that differs from the package name keeps the explicit `name@` part.
+            ("path+file:///ws/crates/foo#totally-different@0.1.0", "totally_different-0.1.0"),
+            // Workspace members repeat the package name as the last path segment, so Cargo
+            // drops the `name@` part.
+            ("path+file:///ws/first-member#0.1.0", "first_member-0.1.0"),
+            // The version itself carries dashes and plus signs.
+            ("registry+https://example.com#toml@1.1.8+spec-1.1.0", "toml-1.1.8+spec-1.1.0"),
+        ];
 
-            my-helpers/src/lib.rs:
-            ";
-        assert_eq!(extract_version(dep_info), None);
+        for (package_id, expected) in cases {
+            assert_eq!(lockfile_key(package_id).as_deref(), Some(expected), "{package_id}");
+        }
+    }
+
+    #[test]
+    fn rejects_package_id_without_name_and_version() {
+        let cases = [
+            "registry+https://github.com/rust-lang/crates.io-index",
+            "path+file:///home/user/ws",
+            "path+file:///home/user/ws#my-helper",
+            "path+file:///home/user/ws#my-helper@",
+            "path+file:///home/user/ws#@0.1.0",
+            "",
+        ];
+
+        for case in cases {
+            assert_eq!(lockfile_key(case), None, "{case}");
+        }
     }
 
     #[test]
@@ -337,24 +377,39 @@ mod tests {
     }
 
     #[test]
-    fn compiled_dep_files_from_check_output() {
-        let output = r#"{"reason":"compiler-artifact","filenames":["target/debug/deps/libserde-aaa.rmeta"]}
-            {"reason":"compiler-artifact","filenames":["target/debug/deps/libmy_bin-bbb.rmeta"]}
-            {"reason":"compiler-artifact","filenames": ["target/debug/deps/libspaced-aaa.rmeta"]}
-            {"reason":"compiler-artifact","filenames":["target/debug/deps/libserde_derive-ccc.so"]}
-            {"reason":"compiler-artifact","filenames":["target/debug/deps/libsyn-ddd.rlib","target/debug/deps/libsyn-ddd.rmeta"]}
-            {"reason":"compiler-artifact","filenames":["target/debug/build/serde-eee/build-script-build"]}
+    fn compiled_units_from_check_output() {
+        let output = r#"{"reason":"compiler-artifact","package_id":"path+file:///ws#serde@1.0.229","filenames":["target/debug/deps/libserde-aaa.rmeta"]}
+            {"reason":"compiler-artifact","package_id":"path+file:///ws#my-bin@0.1.0","filenames":["target/debug/deps/libmy_bin-bbb.rmeta"]}
+            {"reason":"compiler-artifact","package_id":"path+file:///ws#spaced@0.1.0","filenames": ["target/debug/deps/libspaced-aaa.rmeta"]}
+            {"reason":"compiler-artifact","package_id":"path+file:///ws#serde_derive@1.0.229","filenames":["target/debug/deps/libserde_derive-ccc.so"]}
+            {"reason":"compiler-artifact","package_id":"path+file:///ws#syn@2.0.119","filenames":["target/debug/deps/libsyn-ddd.rlib","target/debug/deps/libsyn-ddd.rmeta"]}
+            {"reason":"compiler-artifact","package_id":"path+file:///ws#serde@1.0.229","filenames":["target/debug/build/serde-eee/build-script-build"]}
+            {"reason":"compiler-artifact","filenames":["target/debug/deps/liborphan-fff.rmeta"]}
             {"reason":"build-finished","success":true}
             not json"#;
+        let unit = |package_id: &str, dep_file: &str| CompiledUnit {
+            package_id: package_id.to_string(),
+            dep_file: PathBuf::from(dep_file),
+        };
+        let ws = "path+file:///ws#";
         assert_eq!(
-            compiled_dep_files(output),
+            compiled_units(output),
             vec![
-                PathBuf::from("target/debug/deps/serde-aaa.d"),
-                PathBuf::from("target/debug/deps/my_bin-bbb.d"),
-                PathBuf::from("target/debug/deps/spaced-aaa.d"),
-                PathBuf::from("target/debug/deps/serde_derive-ccc.d"),
-                PathBuf::from("target/debug/deps/syn-ddd.d"),
+                unit(&format!("{ws}serde@1.0.229"), "target/debug/deps/serde-aaa.d"),
+                unit(&format!("{ws}my-bin@0.1.0"), "target/debug/deps/my_bin-bbb.d"),
+                unit(&format!("{ws}spaced@0.1.0"), "target/debug/deps/spaced-aaa.d"),
+                unit(&format!("{ws}serde_derive@1.0.229"), "target/debug/deps/serde_derive-ccc.d"),
+                unit(&format!("{ws}syn@2.0.119"), "target/debug/deps/syn-ddd.d"),
             ]
         );
+    }
+
+    #[test]
+    fn extracts_dep_file_from_artifact_line() {
+        let line = r#"{"filenames":["target/debug/deps/libsyn-ddd.rlib","target/debug/deps/libsyn-ddd.rmeta"]}"#;
+        assert_eq!(artifact_dep_file(line), Some(PathBuf::from("target/debug/deps/syn-ddd.d")));
+
+        let no_artifact = r#"{"filenames":["target/debug/deps/libsyn-ddd.rlib"]}"#;
+        assert_eq!(artifact_dep_file(no_artifact), None);
     }
 }

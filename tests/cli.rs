@@ -252,3 +252,93 @@ fn succeeds_with_enabled_features() {
         .success()
         .stdout(contains("serde_derive"));
 }
+
+#[test]
+fn reports_root_crate_with_custom_binary_and_library_names() {
+    let project_dir = TempDir::new().unwrap();
+    fs::create_dir_all(project_dir.path().join("src")).unwrap();
+    fs::write(
+        project_dir.path().join("Cargo.toml"),
+        "[package]\nname = \"renamed-targets\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[[bin]]\nname = \"newbin\"\npath = \"src/main.rs\"\n\n[lib]\nname = \"newlib\"\npath = \"src/lib.rs\"\n",
+    )
+    .unwrap();
+    fs::write(project_dir.path().join("src/lib.rs"), "pub fn value() -> u32 { 0 }").unwrap();
+    fs::write(
+        project_dir.path().join("src/main.rs"),
+        "fn main() {println!(\"{}\", newlib::value());}",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(project_dir.path())
+        .assert()
+        .success()
+        .stdout(contains("renamed_targets-0.1.0").count(1))
+        .stdout(contains("newlib").not())
+        .stdout(contains("newbin").not());
+}
+
+#[test]
+fn reports_root_crate_when_lib_and_bin_share_a_target_name() {
+    let project_dir = TempDir::new().unwrap();
+    fs::create_dir_all(project_dir.path().join("src")).unwrap();
+    fs::write(
+        project_dir.path().join("Cargo.toml"),
+        "[package]\nname = \"renamed-targets\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[lib]\nname = \"shared\"\npath = \"src/lib.rs\"\n\n[[bin]]\nname = \"shared\"\npath = \"src/main.rs\"\n",
+    )
+    .unwrap();
+    fs::write(
+        project_dir.path().join("src/lib.rs"),
+        "pub unsafe fn value() -> u32 { unsafe { 0 } }",
+    )
+    .unwrap();
+    fs::write(
+        project_dir.path().join("src/main.rs"),
+        "fn main() {println!(\"{}\", unsafe { shared::value() });}",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(project_dir.path())
+        .assert()
+        .success()
+        .stdout(contains("renamed_targets-0.1.0").count(1))
+        .stdout(contains("3 unsafe"));
+}
+
+#[test]
+fn reports_path_dependency_with_a_renamed_library_name() {
+    let project_dir = TempDir::new().unwrap();
+    fs::create_dir_all(project_dir.path().join("src")).unwrap();
+    fs::create_dir_all(project_dir.path().join("helpers/src")).unwrap();
+    fs::write(
+        project_dir.path().join("Cargo.toml"),
+        "[package]\nname = \"path-dep-root\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\npath-helpers = { path = \"helpers\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        project_dir.path().join("src/lib.rs"),
+        "pub fn add() -> u32 { helpers_renamed::helper() }\n",
+    )
+    .unwrap();
+    fs::write(
+        project_dir.path().join("helpers/Cargo.toml"),
+        "[package]\nname = \"path-helpers\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[lib]\nname = \"helpers_renamed\"\npath = \"src/lib.rs\"\n",
+    )
+    .unwrap();
+    fs::write(
+        project_dir.path().join("helpers/src/lib.rs"),
+        "#![forbid(unsafe_code)]\npub fn helper() -> u32 { 1 }\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cargo-issafe")
+        .unwrap()
+        .current_dir(project_dir.path())
+        .assert()
+        .success()
+        .stdout(contains("path_helpers-0.1.0").and(contains("safe")))
+        .stdout(contains("helpers_renamed").not());
+}

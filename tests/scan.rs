@@ -2,25 +2,29 @@
 
 #![allow(clippy::unwrap_used)]
 use std::collections::HashMap;
-use std::env;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use cargo_issafe::error::ScanError;
-use cargo_issafe::scan::{Safety, dependency_safety};
+use cargo_issafe::scan::{CompiledUnit, Safety, compiled_units, dependency_safety};
+use tempfile::TempDir;
 
-fn create_test_dir() -> PathBuf {
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let path = env::temp_dir().join(format!("cargo-issafe-tests-{}-{timestamp}", process::id()));
-    let create_result = fs::create_dir(&path);
+/// Creates a `deps` directory inside a disposable temporary directory.
+///
+/// The directory must be named `deps` because that is the only place where
+/// compiler artifacts are looked for.
+fn create_deps_dir() -> (TempDir, PathBuf) {
+    let temp_dir = TempDir::new().unwrap();
+    let deps = temp_dir.path().join("deps");
+    let create_result = fs::create_dir(&deps);
     assert!(create_result.is_ok());
-    path
+
+    (temp_dir, deps)
 }
 
-fn write_dependency(deps: &Path, dep_file_name: &str, sources: &[(&str, &str)]) -> PathBuf {
+/// Writes the source files and the `.d` file describing a single compilation unit.
+fn write_unit(deps: &Path, package_id: &str, dep: &str, sources: &[(&str, &str)]) -> CompiledUnit {
     let mut dep_info = String::new();
     for &(source_name, source) in sources {
         let source_path = deps.join(source_name);
@@ -30,24 +34,44 @@ fn write_dependency(deps: &Path, dep_file_name: &str, sources: &[(&str, &str)]) 
         dep_info.push_str(":\n");
     }
 
-    let dep_path = deps.join(dep_file_name);
-    let dep_result = fs::write(&dep_path, dep_info);
+    let dep_file = deps.join(dep);
+    let dep_result = fs::write(&dep_file, dep_info);
     assert!(dep_result.is_ok());
-    dep_path
+
+    CompiledUnit { package_id: package_id.to_string(), dep_file }
+}
+
+/// Rebuilds the `cargo check --message-format=json` output that produced the given units.
+fn check_output(units: &[CompiledUnit]) -> String {
+    units
+        .iter()
+        .map(|unit| {
+            let stem = unit.dep_file.file_stem().unwrap().to_string_lossy().into_owned();
+            let artifact = unit.dep_file.with_file_name(format!("lib{stem}.rmeta"));
+            format!(
+                r#"{{"reason":"compiler-artifact","package_id":"{}","filenames":["{}"]}}"#,
+                unit.package_id,
+                artifact.to_string_lossy()
+            )
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+/// Scans the units the way the CLI does, from the compiler output down to the safety map.
+fn scan(units: &[CompiledUnit]) -> Result<HashMap<String, Safety>, ScanError> {
+    dependency_safety(&compiled_units(&check_output(units)))
 }
 
 fn assert_dependency_safety(sources: &[(&str, &str)], expected: Safety) {
-    let deps = create_test_dir();
-    let dep_path = write_dependency(&deps, "example-123.d", sources);
+    let (_temp_dir, deps) = create_deps_dir();
+    let unit = write_unit(&deps, "path+file:///ws#example@0.1.0", "example-123.d", sources);
 
-    let safety_result = dependency_safety(&[dep_path]);
+    let safety_result = scan(&[unit]);
     assert!(safety_result.is_ok());
     if let Ok(safety) = safety_result {
-        assert_eq!(safety, HashMap::from([("example".to_string(), expected)]));
+        assert_eq!(safety, HashMap::from([("example-0.1.0".to_string(), expected)]));
     }
-
-    let cleanup_result = fs::remove_dir_all(&deps);
-    assert!(cleanup_result.is_ok());
 }
 
 #[test]
@@ -81,7 +105,7 @@ fn reports_unsafe_usage_from_multiple_source_files() {
     assert_dependency_safety(
         &[
             ("lib_0.rs", "pub fn value() -> usize { 0 }\n"),
-            ("lib_1.rs", "pub unsafe fn value() {}\n"),
+            ("lib_1.rs", "pub unsafe fn value() -> usize { 0 }\n"),
         ],
         Safety::UsesUnsafe(1),
     );
@@ -97,7 +121,13 @@ fn skips_non_source_files_with_unsafe_content() {
 
 #[test]
 fn reports_io_error_for_non_existent_path() {
-    let scan_err = dependency_safety(&[PathBuf::from("non-existent/example-123.d")]).unwrap_err();
+    let (_temp_dir, deps) = create_deps_dir();
+    let unit = CompiledUnit {
+        package_id: "path+file:///ws#example@0.1.0".to_string(),
+        dep_file: deps.join("example-123.d"),
+    };
+
+    let scan_err = scan(&[unit]).unwrap_err();
     assert!(matches!(scan_err, ScanError::Io(_)));
     assert!(scan_err.to_string().starts_with("Failed to read source file"));
     assert!(scan_err.source().is_some());
@@ -105,7 +135,7 @@ fn reports_io_error_for_non_existent_path() {
 
 #[test]
 fn returns_no_dependencies_for_empty_input() {
-    let safety_result = dependency_safety(&[]);
+    let safety_result = scan(&[]);
     assert!(safety_result.is_ok());
     if let Ok(safety) = safety_result {
         assert!(safety.is_empty());
@@ -114,105 +144,159 @@ fn returns_no_dependencies_for_empty_input() {
 
 #[test]
 fn reports_missing_entry_point_for_dependency_without_sources() {
-    let deps = create_test_dir();
-    let dep_path = write_dependency(&deps, "example-123.d", &[]);
+    let (_temp_dir, deps) = create_deps_dir();
+    let unit = write_unit(&deps, "path+file:///ws#example@0.1.0", "example-123.d", &[]);
 
-    let scan_err = dependency_safety(&[dep_path]).unwrap_err();
+    let scan_err = scan(&[unit]).unwrap_err();
     assert!(matches!(scan_err, ScanError::MissingEntryPoint));
     assert_eq!(scan_err.to_string(), "Entry point is not found");
     assert!(scan_err.source().is_none());
-
-    let cleanup_result = fs::remove_dir_all(&deps);
-    assert!(cleanup_result.is_ok());
 }
 
 #[test]
 fn reports_forbids_unsafe_and_continues_to_next_dependency() {
-    let deps = create_test_dir();
-    let forbidden = write_dependency(
+    let (_temp_dir, deps) = create_deps_dir();
+    let forbidden = write_unit(
         &deps,
+        "path+file:///ws#forbidden@0.1.0",
         "forbidden-123.d",
         &[
             ("forbidden_lib.rs", "#![forbid(unsafe_code)]\n"),
             ("forbidden_module.rs", "pub unsafe fn value() {}\n"),
         ],
     );
-    let next = write_dependency(&deps, "next-123.d", &[("next_lib.rs", "pub fn value() {}\n")]);
+    let next = write_unit(
+        &deps,
+        "path+file:///ws#next@0.1.0",
+        "next-123.d",
+        &[("next_lib.rs", "pub fn value() {}\n")],
+    );
 
-    let safety_result = dependency_safety(&[forbidden, next]);
+    let safety_result = scan(&[forbidden, next]);
     assert!(safety_result.is_ok());
     if let Ok(safety) = safety_result {
         assert_eq!(safety.len(), 2);
-        assert_eq!(safety.get("forbidden"), Some(&Safety::ForbidsUnsafe));
-        assert_eq!(safety.get("next"), Some(&Safety::NoUnsafe));
+        assert_eq!(safety.get("forbidden-0.1.0"), Some(&Safety::ForbidsUnsafe));
+        assert_eq!(safety.get("next-0.1.0"), Some(&Safety::NoUnsafe));
     }
-
-    let cleanup_result = fs::remove_dir_all(&deps);
-    assert!(cleanup_result.is_ok());
 }
 
 #[test]
-fn combines_unsafe_usage_from_multiple_d_files_with_same_crate_name() {
-    let deps = create_test_dir();
-    let first = write_dependency(&deps, "example-123.d", &[("lib0.rs", "pub unsafe fn a() {}\n")]);
-    let second = write_dependency(&deps, "example-456.d", &[("lib1.rs", "pub unsafe fn b() {}\n")]);
+fn combines_unsafe_usage_from_multiple_units_of_the_same_package() {
+    let (_temp_dir, deps) = create_deps_dir();
+    let package_id = "path+file:///ws#example@0.1.0";
+    let first =
+        write_unit(&deps, package_id, "example-123.d", &[("lib0.rs", "pub unsafe fn a() {}\n")]);
+    let second =
+        write_unit(&deps, package_id, "example-456.d", &[("lib1.rs", "pub unsafe fn b() {}\n")]);
 
-    let safety_result = dependency_safety(&[first, second]);
+    let safety_result = scan(&[first, second]);
     assert!(safety_result.is_ok());
     if let Ok(safety) = safety_result {
-        assert_eq!(safety, HashMap::from([("example".to_string(), Safety::UsesUnsafe(2))]));
+        assert_eq!(safety, HashMap::from([("example-0.1.0".to_string(), Safety::UsesUnsafe(2))]));
     }
-
-    let cleanup_result = fs::remove_dir_all(&deps);
-    assert!(cleanup_result.is_ok());
 }
 
 #[test]
-fn reports_versioned_crate_name_from_registry_path() {
-    let deps = create_test_dir();
+fn keeps_packages_with_the_same_name_at_different_versions_apart() {
+    let (_temp_dir, deps) = create_deps_dir();
+    let older = write_unit(
+        &deps,
+        "path+file:///ws#example@0.1.0",
+        "example-123.d",
+        &[("lib0.rs", "pub unsafe fn a() {}\n")],
+    );
+    let newer = write_unit(
+        &deps,
+        "path+file:///ws#example@0.2.0",
+        "example-456.d",
+        &[("lib1.rs", "pub fn b() {}\n")],
+    );
 
-    let registry_dir = deps.join(".cargo/registry/src/index.crates.io-123/example-0.1.0/src");
-    let create_result = fs::create_dir_all(&registry_dir);
-    assert!(create_result.is_ok());
+    let safety_result = scan(&[older, newer]);
+    assert!(safety_result.is_ok());
+    if let Ok(safety) = safety_result {
+        assert_eq!(
+            safety,
+            HashMap::from([
+                ("example-0.1.0".to_string(), Safety::UsesUnsafe(1)),
+                ("example-0.2.0".to_string(), Safety::NoUnsafe),
+            ])
+        );
+    }
+}
 
-    let source_path = registry_dir.join("lib.rs");
-    let write_result = fs::write(&source_path, "pub fn value() -> usize { 0 }\n");
-    assert!(write_result.is_ok());
+#[test]
+fn reports_versioned_package_name_from_registry_dependency() {
+    let (_temp_dir, deps) = create_deps_dir();
+    let unit = write_unit(
+        &deps,
+        "registry+https://github.com/rust-lang/crates.io-index#example@0.1.0",
+        "example-123.d",
+        &[("lib.rs", "pub fn value() -> usize { 0 }\n")],
+    );
 
-    let dep_path = deps.join("example-123.d");
-    let dep_result = fs::write(&dep_path, format!("{}:\n", source_path.to_string_lossy()));
-    assert!(dep_result.is_ok());
-
-    let safety_result = dependency_safety(&[dep_path]);
+    let safety_result = scan(&[unit]);
     assert!(safety_result.is_ok());
     if let Ok(safety) = safety_result {
         assert_eq!(safety, HashMap::from([("example-0.1.0".to_string(), Safety::NoUnsafe)]));
     }
-
-    let cleanup_result = fs::remove_dir_all(&deps);
-    assert!(cleanup_result.is_ok());
 }
 
-// Windows dep-info paths use drive-letter colons and backslashes (e.g. `D:\...\example-0.2.177\src\lib.rs:`).
+// Windows dep-info paths use drive-letter colons and backslashes (e.g. `D:\...\lib.rs:`).
 // Only lines ending with `:` are sources, so the drive colon is never treated as a separator.
 #[test]
-fn reports_versioned_crate_name_from_windows_path() {
-    let deps = create_test_dir();
-    let dep_path = write_dependency(
+fn reports_source_files_from_windows_dep_info_path() {
+    let (_temp_dir, deps) = create_deps_dir();
+    let unit = write_unit(
         &deps,
-        "example-123.d",
-        &[(
-            r"D:\cargo\registry\src\index\example-0.2.177\src\lib.rs",
-            "pub fn value() -> usize { 0 }\n",
-        )],
+        "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.177",
+        "libc-123.d",
+        &[(r"D:\cargo\registry\src\index\libc-0.2.177\src\lib.rs", "pub fn value() {}\n")],
     );
 
-    let safety_result = dependency_safety(&[dep_path]);
+    let safety_result = scan(&[unit]);
     assert!(safety_result.is_ok());
     if let Ok(safety) = safety_result {
-        assert_eq!(safety, HashMap::from([("example-0.2.177".to_string(), Safety::NoUnsafe)]));
+        assert_eq!(safety, HashMap::from([("libc-0.2.177".to_string(), Safety::NoUnsafe)]));
     }
+}
 
-    let cleanup_result = fs::remove_dir_all(&deps);
-    assert!(cleanup_result.is_ok());
+// The `[lib]` and `[[bin]]` sections may rename a target, so the `.d` file stem holds the
+// target name while `Cargo.lock` holds the package name. The `package_id` bridges the two.
+#[test]
+fn reports_package_name_for_renamed_lib_and_bin_targets() {
+    let (_temp_dir, deps) = create_deps_dir();
+    let package_id = "path+file:///ws#renamed-targets@0.1.0";
+    let library =
+        write_unit(&deps, package_id, "newlib-123.d", &[("lib.rs", "pub unsafe fn a() {}\n")]);
+    let binary =
+        write_unit(&deps, package_id, "newbin-456.d", &[("main.rs", "pub unsafe fn b() {}\n")]);
+
+    let safety_result = scan(&[library, binary]);
+    assert!(safety_result.is_ok());
+    if let Ok(safety) = safety_result {
+        assert_eq!(
+            safety,
+            HashMap::from([("renamed_targets-0.1.0".to_string(), Safety::UsesUnsafe(2))])
+        );
+    }
+}
+
+#[test]
+fn skips_units_without_a_resolvable_package_id() {
+    let (_temp_dir, deps) = create_deps_dir();
+    let resolvable = write_unit(
+        &deps,
+        "path+file:///ws#example@0.1.0",
+        "example-123.d",
+        &[("lib.rs", "pub fn value() {}\n")],
+    );
+    let broken = write_unit(&deps, "path+file:///ws#malformed", "malformed-456.d", &[]);
+
+    let safety_result = scan(&[resolvable, broken]);
+    assert!(safety_result.is_ok());
+    if let Ok(safety) = safety_result {
+        assert_eq!(safety, HashMap::from([("example-0.1.0".to_string(), Safety::NoUnsafe)]));
+    }
 }

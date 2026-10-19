@@ -7,7 +7,7 @@ use std::fs;
 use std::process::Command;
 
 use cargo_issafe::manifest::{manifest_paths, package_name};
-use cargo_issafe::scan::{Safety, compiled_dep_files, dependency_safety};
+use cargo_issafe::scan::{Safety, compiled_units, dependency_safety};
 use cargo_issafe::tree::{dependency_tree, format_tree};
 
 const HELP: &str = "cargo-issafe - detect `unsafe` keyword usage in crates and dependencies
@@ -56,8 +56,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let lockfile = fs::read_to_string("Cargo.lock").map_err(|err| format!("Cargo.lock: {err}"))?;
     let stdout = String::from_utf8_lossy(&check.stdout);
-    let dep_files = compiled_dep_files(&stdout);
-    let crate_safety = dependency_safety(&dep_files)?;
+    let dep_units = compiled_units(&stdout);
+    let crate_safety = dependency_safety(&dep_units)?;
     for root in roots {
         let tree = dependency_tree(&root, &lockfile)?;
         print!("{}", format_tree(&tree, &crate_safety));
