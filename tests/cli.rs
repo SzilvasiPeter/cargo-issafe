@@ -79,7 +79,6 @@ fn single_member_workspace() {
 
     Command::cargo_bin("cargo-issafe")
         .unwrap()
-        .arg("--workspace")
         .current_dir(workspace_dir.path())
         .assert()
         .success()
@@ -107,7 +106,6 @@ fn multiple_members_workspace() {
 
     Command::cargo_bin("cargo-issafe")
         .unwrap()
-        .arg("--workspace")
         .current_dir(workspace_dir.path())
         .assert()
         .success()
@@ -154,7 +152,6 @@ fn expands_the_dependencies_of_a_shared_crate_only_once() {
 
     let assert = Command::cargo_bin("cargo-issafe")
         .unwrap()
-        .arg("--workspace")
         .current_dir(workspace_dir.path())
         .assert()
         .success();
@@ -165,7 +162,7 @@ fn expands_the_dependencies_of_a_shared_crate_only_once() {
 }
 
 #[test]
-fn fails_without_workspace_flag_when_workspace_detected() {
+fn scans_workspace_with_root_package() {
     let workspace_dir = TempDir::new().unwrap();
     for member in ["first-member", "second-member"] {
         let member_dir = workspace_dir.path().join(member);
@@ -189,8 +186,10 @@ fn fails_without_workspace_flag_when_workspace_detected() {
         .unwrap()
         .current_dir(workspace_dir.path())
         .assert()
-        .failure()
-        .stderr(contains("cargo workspace is detected, use the `--workspace` argument"));
+        .success()
+        .stdout(contains("ws-root"))
+        .stdout(contains("first-member"))
+        .stdout(contains("second-member"));
 }
 
 #[test]
@@ -202,7 +201,7 @@ fn prints_help_with_help_flag() {
         .success()
         .stdout(contains("Usage"))
         .stdout(contains("--fail-on-unsafe"))
-        .stdout(contains("--workspace"));
+        .stdout(contains("--workspace").not());
 }
 
 #[test]

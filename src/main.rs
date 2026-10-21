@@ -13,11 +13,10 @@ use cargo_issafe::tree::{dependency_tree, format_tree};
 
 const HELP: &str = "cargo-issafe - detect `unsafe` keyword usage in crates and dependencies
 
-Usage: cargo issafe [--fail-on-unsafe] [--workspace]
+Usage: cargo issafe [--fail-on-unsafe]
 
 Options:
     --fail-on-unsafe    fail when the crate or its dependencies use unsafe code
-    --workspace         scan all workspace members
     --help              print this help message
 ";
 
@@ -28,10 +27,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let fail_on_unsafe = args().any(|arg| arg == "--fail-on-unsafe");
-    let workspace = args().find(|arg| arg == "--workspace");
 
-    let check_args = ["check", "--message-format=json"];
-    let check = Command::new("cargo").args(check_args).args(&workspace).output()?;
+    let check_args = ["check", "--message-format=json", "--workspace"];
+    let check = Command::new("cargo").args(check_args).output()?;
     if !check.status.success() {
         return Err("the `cargo check` command failed.".into());
     }
@@ -49,10 +47,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         if let Some(name) = package_name(&manifest) {
             roots.push(name.to_string());
         }
-    }
-
-    if roots.len() > 1 && workspace.is_none() {
-        return Err("cargo workspace is detected, use the `--workspace` argument.".into());
     }
 
     let lockfile = fs::read_to_string("Cargo.lock").map_err(|err| format!("Cargo.lock: {err}"))?;

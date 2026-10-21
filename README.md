@@ -48,11 +48,10 @@ Run with `--help` to see all arguments:
 ```
 cargo-issafe - detect `unsafe` keyword usage in crates and dependencies
 
-Usage: cargo issafe [--fail-on-unsafe] [--workspace]
+Usage: cargo issafe [--fail-on-unsafe]
 
 Options:
     --fail-on-unsafe    fail when the crate or its dependencies use unsafe code
-    --workspace         scan all workspace members
     --help              print this help message
 ```
 
@@ -60,7 +59,7 @@ If you found a lot of unsafe occurrences, please [don't panic](DONTPANIC.md).
 
 ## How does it work under the hood?
 
-The tool runs `cargo check --message-format=json` and scans only the `.d` files listed as compiler artifacts, so removed dependencies and changed features leave no stale results. It then counts the `unsafe` keyword in each crate's sources and presents the findings.
+The tool runs `cargo check --message-format=json --workspace` and scans only the `.d` files listed as compiler artifacts, so removed dependencies and changed features leave no stale results. It then counts the `unsafe` keyword in each crate's sources and presents the findings.
 
 ## Limitations
 
